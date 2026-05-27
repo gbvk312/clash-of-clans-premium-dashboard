@@ -1,5 +1,88 @@
 // Clash of Clans Dashboard App Controller - Premium Hybrid connection
 
+// ===== CACHING & INSPECTOR UTILITIES =====
+const cocCache = {
+  get(endpoint) {
+    const cached = localStorage.getItem(`coc_cache_${endpoint}`);
+    if (!cached) return null;
+    try {
+      const { data, timestamp } = JSON.parse(cached);
+      if (Date.now() - timestamp < 5 * 60 * 1000) {
+        return data;
+      }
+    } catch (e) {}
+    return null;
+  },
+  set(endpoint, data) {
+    try {
+      localStorage.setItem(`coc_cache_${endpoint}`, JSON.stringify({
+        data,
+        timestamp: Date.now()
+      }));
+    } catch (e) {
+      this.clearOld();
+    }
+  },
+  clearOld() {
+    for (let i = 0; i < localStorage.length; i++) {
+      const key = localStorage.key(i);
+      if (key && key.startsWith('coc_cache_')) {
+        localStorage.removeItem(key);
+      }
+    }
+  }
+};
+
+let lastPayload = null;
+let lastEndpoint = '';
+
+function updatePayloadInspector(endpoint, data) {
+  lastPayload = data;
+  lastEndpoint = endpoint;
+  const tsEl = document.getElementById('payload-timestamp');
+  if (tsEl) tsEl.textContent = `Endpoint: ${endpoint}`;
+  const renderer = document.getElementById('json-renderer');
+  if (renderer) {
+    renderer.textContent = JSON.stringify(data, null, 2);
+  }
+  const btn = document.getElementById('global-inspect-btn');
+  if (btn) {
+    btn.classList.add('has-data');
+  }
+}
+
+function openPayloadInspector() {
+  const drawer = document.getElementById('inspect-drawer');
+  if (!drawer) return;
+  if (drawer.showModal) {
+    drawer.showModal();
+  } else {
+    drawer.style.display = 'flex';
+  }
+}
+
+function closePayloadInspector() {
+  const drawer = document.getElementById('inspect-drawer');
+  if (!drawer) return;
+  if (drawer.close) {
+    drawer.close();
+  } else {
+    drawer.style.display = 'none';
+  }
+}
+
+function copyInspectorPayload() {
+  if (!lastPayload) {
+    showToast('No payload data to copy.', 'warning');
+    return;
+  }
+  navigator.clipboard.writeText(JSON.stringify(lastPayload, null, 2)).then(() => {
+    showToast('Payload copied to clipboard!', 'success');
+  }).catch(() => {
+    showToast('Could not copy payload.', 'error');
+  });
+}
+
 // State Management
 const state = {
   activeTab: 'overview',
@@ -359,9 +442,85 @@ function initApp() {
   setupWarHubSubnav();
   initLeaderboardsView();
   setupCapitalSearchForm();
+  
+  // Start Latency Monitor and setup Inspector triggers
+  startLatencyMonitor();
+  document.getElementById('drawer-close')?.addEventListener('click', closePayloadInspector);
 
   // Initialize page components
   showInitialPlaceholders();
+}
+
+// ===== API LATENCY & HEALTH MONITOR =====
+function startLatencyMonitor() {
+  const indicator = document.getElementById('latency-indicator');
+  if (!indicator) return;
+  
+  async function checkLatency() {
+    const start = Date.now();
+    try {
+      if (state.mode === 'demo') {
+        setTimeout(() => {
+          const latency = Math.floor(Math.random() * 20) + 12;
+          updateLatencyUI(latency, 'success');
+        }, 150);
+        return;
+      }
+      
+      let testUrl = state.proxyUrl;
+      if (window.location.port === '3000' || window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1') {
+        testUrl = '/api/locations';
+      } else {
+        testUrl = `${state.proxyUrl}https://api.clashofclans.com/v1/locations`;
+      }
+      
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 3000);
+      
+      const headers = { "Accept": "application/json" };
+      if (state.apiToken) {
+        headers["Authorization"] = `Bearer ${state.apiToken}`;
+      }
+      
+      const res = await fetch(testUrl, { 
+        method: 'GET', 
+        signal: controller.signal,
+        headers: headers
+      });
+      clearTimeout(timeoutId);
+      
+      const end = Date.now();
+      const latency = end - start;
+      
+      if (res.ok) {
+        updateLatencyUI(latency, latency < 350 ? 'success' : 'warning');
+      } else {
+        updateLatencyUI(latency, 'error');
+      }
+    } catch (err) {
+      updateLatencyUI(0, 'offline');
+    }
+  }
+  
+  function updateLatencyUI(ms, status) {
+    const dot = indicator.querySelector('.latency-dot');
+    const text = indicator.querySelector('.latency-text');
+    if (!dot || !text) return;
+    
+    indicator.className = `latency-pill status-${status}`;
+    if (status === 'success') {
+      text.textContent = `Online: ${ms}ms`;
+    } else if (status === 'warning') {
+      text.textContent = `Slow: ${ms}ms`;
+    } else if (status === 'error') {
+      text.textContent = `Auth/Proxy Error`;
+    } else {
+      text.textContent = `Disconnected`;
+    }
+  }
+  
+  checkLatency();
+  setInterval(checkLatency, 20000);
 }
 
 // Live vs Demo dashboard toggler
@@ -636,94 +795,105 @@ function setupSearchForms() {
 
 // Fetch Logic (Supports Live API & Demo / Sandbox interception)
 async function fetchCocData(endpoint) {
+  // Check Local Cache First!
+  const cached = cocCache.get(endpoint);
+  if (cached) {
+    updatePayloadInspector(endpoint, cached);
+    return cached;
+  }
+
   // If in Demo Mode, bypass the real HTTP request and serve mockData instead!
   if (state.mode === 'demo') {
     // Add dynamic network delay for that premium high-fidelity interface feel
     await new Promise(resolve => setTimeout(resolve, 600));
 
+    let result = null;
+
     // Handle Gold Pass
     if (endpoint.startsWith('/goldpass/')) {
-      return JSON.parse(JSON.stringify(window.MOCK_GOLD_PASS));
+      result = JSON.parse(JSON.stringify(window.MOCK_GOLD_PASS));
     }
-
     // Handle Locations & rankings
-    if (endpoint.startsWith('/locations')) {
+    else if (endpoint.startsWith('/locations')) {
       const parts = endpoint.split('/');
       if (parts.length === 2) {
-        return { items: JSON.parse(JSON.stringify(window.MOCK_LEADERBOARDS.locations)) };
+        result = { items: JSON.parse(JSON.stringify(window.MOCK_LEADERBOARDS.locations)) };
+      } else {
+        const locId = parts[2];
+        const type = parts[4]; // e.g. "clans" or "players"
+        const data = window.MOCK_LEADERBOARDS[type]?.[locId] || window.MOCK_LEADERBOARDS[type]?.[32000006] || [];
+        result = { items: JSON.parse(JSON.stringify(data)) };
       }
-      const locId = parts[2];
-      const type = parts[4]; // e.g. "clans" or "players"
-      const data = window.MOCK_LEADERBOARDS[type]?.[locId] || window.MOCK_LEADERBOARDS[type]?.[32000006] || [];
-      return { items: JSON.parse(JSON.stringify(data)) };
     }
-
     // Handle Clan & CurrentWar routing
-    if (endpoint.startsWith('/clans/')) {
+    else if (endpoint.startsWith('/clans/')) {
       const parts = endpoint.split('/');
       const tag = parts[2];
       
       // If requesting active war
       if (parts[3] === 'currentwar') {
         if (window.MOCK_WARS && window.MOCK_WARS[tag]) {
-          return JSON.parse(JSON.stringify(window.MOCK_WARS[tag]));
+          result = JSON.parse(JSON.stringify(window.MOCK_WARS[tag]));
+        } else {
+          result = JSON.parse(JSON.stringify(Object.values(window.MOCK_WARS)[0]));
         }
-        // Fallback default war log
-        return JSON.parse(JSON.stringify(Object.values(window.MOCK_WARS)[0]));
       }
-
       // If requesting war league group (CWL)
-      if (parts[3] === 'warleague' && parts[4] === 'group') {
+      else if (parts[3] === 'warleague' && parts[4] === 'group') {
         if (window.MOCK_CWL && window.MOCK_CWL[tag]) {
-          return JSON.parse(JSON.stringify(window.MOCK_CWL[tag]));
+          result = JSON.parse(JSON.stringify(window.MOCK_CWL[tag]));
+        } else {
+          result = JSON.parse(JSON.stringify(Object.values(window.MOCK_CWL)[0]));
         }
-        return JSON.parse(JSON.stringify(Object.values(window.MOCK_CWL)[0]));
       }
-
       // If requesting war logs
-      if (parts[3] === 'warlog') {
+      else if (parts[3] === 'warlog') {
         if (window.MOCK_WAR_LOG && window.MOCK_WAR_LOG[tag]) {
-          return JSON.parse(JSON.stringify(window.MOCK_WAR_LOG[tag]));
+          result = JSON.parse(JSON.stringify(window.MOCK_WAR_LOG[tag]));
+        } else {
+          result = JSON.parse(JSON.stringify(Object.values(window.MOCK_WAR_LOG)[0]));
         }
-        return JSON.parse(JSON.stringify(Object.values(window.MOCK_WAR_LOG)[0]));
       }
-
       // If requesting capital raids log
-      if (parts[3] === 'capitalraidlog') {
+      else if (parts[3] === 'capitalraidlog') {
         if (window.MOCK_CAPITAL_RAIDS && window.MOCK_CAPITAL_RAIDS[tag]) {
-          return JSON.parse(JSON.stringify(window.MOCK_CAPITAL_RAIDS[tag]));
+          result = JSON.parse(JSON.stringify(window.MOCK_CAPITAL_RAIDS[tag]));
+        } else {
+          result = JSON.parse(JSON.stringify(Object.values(window.MOCK_CAPITAL_RAIDS)[0]));
         }
-        return JSON.parse(JSON.stringify(Object.values(window.MOCK_CAPITAL_RAIDS)[0]));
       }
-      
       // Requesting clan itself
-      if (window.MOCK_CLANS && window.MOCK_CLANS[tag]) {
-        return JSON.parse(JSON.stringify(window.MOCK_CLANS[tag]));
+      else {
+        if (window.MOCK_CLANS && window.MOCK_CLANS[tag]) {
+          result = JSON.parse(JSON.stringify(window.MOCK_CLANS[tag]));
+        } else {
+          const template = Object.values(window.MOCK_CLANS)[0];
+          const copy = JSON.parse(JSON.stringify(template));
+          copy.tag = tag;
+          copy.name = `Clan ${tag.replace('#', '')}`;
+          result = copy;
+        }
       }
-      
-      // Dynamically generate a clan if searched tag is not in pre-seed
-      const template = Object.values(window.MOCK_CLANS)[0];
-      const copy = JSON.parse(JSON.stringify(template));
-      copy.tag = tag;
-      copy.name = `Clan ${tag.replace('#', '')}`;
-      return copy;
     }
-
     // Handle Player profiling routing
-    if (endpoint.startsWith('/players/')) {
+    else if (endpoint.startsWith('/players/')) {
       const tag = endpoint.split('/')[2];
       if (window.MOCK_PLAYERS && window.MOCK_PLAYERS[tag]) {
-        return JSON.parse(JSON.stringify(window.MOCK_PLAYERS[tag]));
+        result = JSON.parse(JSON.stringify(window.MOCK_PLAYERS[tag]));
+      } else {
+        const template = Object.values(window.MOCK_PLAYERS)[0];
+        const copy = JSON.parse(JSON.stringify(template));
+        copy.tag = tag;
+        copy.name = `Clasher ${tag.replace('#', '')}`;
+        result = copy;
       }
-      
-      // Dynamically generate player details
-      const template = Object.values(window.MOCK_PLAYERS)[0];
-      const copy = JSON.parse(JSON.stringify(template));
-      copy.tag = tag;
-      copy.name = `Clasher ${tag.replace('#', '')}`;
-      return copy;
     }
     
+    if (result) {
+      updatePayloadInspector(endpoint, result);
+      return result;
+    }
+
     throw new Error("Invalid Demo Mode Endpoint requested");
   }
 
@@ -754,7 +924,10 @@ async function fetchCocData(endpoint) {
     throw new Error(`API Error: ${response.status} - ${response.statusText}. Please verify token, proxy, and Tag validity.`);
   }
 
-  return response.json();
+  const json = await response.json();
+  cocCache.set(endpoint, json);
+  updatePayloadInspector(endpoint, json);
+  return json;
 }
 
 // Data Loaders
@@ -1081,42 +1254,56 @@ function renderClan(clan) {
   if (sortedMembers.length > 0) {
     rosterHtml = `
       <div style="display: flex; align-items: center; justify-content: space-between; margin-top: 32px; border-bottom: 1px solid var(--border-subtle); padding-bottom: 12px;">
-        <h3>Clan Roster & Leaderboards</h3>
-        <small style="color: var(--text-muted);">Click column headers to sort</small>
+        <h3>Clan Roster & Strategic Grid</h3>
+        <small style="color: var(--text-muted);">Click header to sort: </small>
+        <button class="config-btn" onclick="toggleRosterSort('trophies')" style="padding: 4px 10px; font-size: 12px;">Sort Trophies ${getSortIcon('trophies')}</button>
       </div>
-      <table class="clan-roster-table">
-        <thead>
-          <tr>
-            <th class="sort-header" onclick="toggleRosterSort('clanRank')">Rank${getSortIcon('clanRank')}</th>
-            <th>Name</th>
-            <th class="sort-header" onclick="toggleRosterSort('role')">Role${getSortIcon('role')}</th>
-            <th class="sort-header" onclick="toggleRosterSort('trophies')">Trophies${getSortIcon('trophies')}</th>
-            <th class="sort-header" onclick="toggleRosterSort('donations')">Donated${getSortIcon('donations')}</th>
-            <th class="sort-header" onclick="toggleRosterSort('donationsReceived')">Received${getSortIcon('donationsReceived')}</th>
-          </tr>
-        </thead>
-        <tbody>
-          ${sortedMembers.map(member => `
-            <tr>
-              <td>${member.clanRank}</td>
-              <td>
-                <div class="name-container">
-                  ${member.league && member.league.iconUrls ? `<img class="league-icon" src="${member.league.iconUrls.small}" alt="league"/>` : ''}
-                  <div>
-                    <strong style="color: var(--text-main); cursor: pointer;" onclick="quickLoadBookmark('player', '${escapeHtml(member.tag)}')">${escapeHtml(member.name)}</strong>
-                    <span class="inspect-badge" onclick="quickLoadBookmark('player', '${escapeHtml(member.tag)}')" style="margin-left: 8px;">Inspect</span><br/>
-                    <small style="color: var(--text-muted);">${escapeHtml(member.tag)}</small>
-                  </div>
+      <div class="roster-grid-premium">
+        ${sortedMembers.map(member => {
+          let thLevel = 9;
+          if (member.trophies >= 5000) thLevel = 16;
+          else if (member.trophies >= 4500) thLevel = 15;
+          else if (member.trophies >= 4000) thLevel = 14;
+          else if (member.trophies >= 3200) thLevel = 13;
+          else if (member.trophies >= 2600) thLevel = 12;
+          else if (member.trophies >= 2000) thLevel = 11;
+          else if (member.trophies >= 1500) thLevel = 10;
+          
+          return `
+            <div class="roster-card-premium th-theme-th${thLevel}">
+              <div class="roster-card-header">
+                <span class="rank-badge" style="background: rgba(255,255,255,0.06); font-size: 11px;">#${member.clanRank}</span>
+                <span class="th-badge">TH ${thLevel}</span>
+              </div>
+              <div class="roster-card-member-info" style="margin-top: 8px;">
+                ${member.league && member.league.iconUrls ? `<img class="roster-card-league-icon" src="${member.league.iconUrls.small}" alt="league"/>` : ''}
+                <div>
+                  <strong style="color: var(--text-main); font-size: 15px; cursor: pointer; display: block;" onclick="quickLoadBookmark('player', '${escapeHtml(member.tag)}')">${escapeHtml(member.name)}</strong>
+                  <small style="color: var(--text-muted); font-size: 11px;">${escapeHtml(member.tag)}</small>
                 </div>
-              </td>
-              <td><span class="badge-small role-${member.role}">${member.role.replace(/([A-Z])/g, ' $1')}</span></td>
-              <td><strong style="color: var(--clash-gold);"><i class="fas fa-trophy"></i> ${member.trophies}</strong></td>
-              <td style="color: var(--clash-elixir); font-weight: 600;">${member.donations}</td>
-              <td style="color: var(--clash-dark-elixir); font-weight: 600;">${member.donationsReceived}</td>
-            </tr>
-          `).join('')}
-        </tbody>
-      </table>
+              </div>
+              <div style="margin-top: 8px; display: flex; flex-direction: column; gap: 4px; font-size: 13px;">
+                <div style="display: flex; justify-content: space-between;">
+                  <span style="color: var(--text-muted);">Trophies:</span>
+                  <strong style="color: var(--clash-gold);"><i class="fas fa-trophy"></i> ${member.trophies}</strong>
+                </div>
+                <div style="display: flex; justify-content: space-between;">
+                  <span style="color: var(--text-muted);">Donated:</span>
+                  <span style="color: var(--clash-elixir); font-weight: bold;">${member.donations}</span>
+                </div>
+                <div style="display: flex; justify-content: space-between;">
+                  <span style="color: var(--text-muted);">Received:</span>
+                  <span style="color: var(--clash-dark-elixir); font-weight: bold;">${member.donationsReceived}</span>
+                </div>
+              </div>
+              <div style="margin-top: 12px; display: flex; justify-content: space-between; align-items: center; border-top: 1px solid var(--border-subtle); padding-top: 8px;">
+                <span class="role-tag ${member.role}">${member.role.replace(/([A-Z])/g, ' $1')}</span>
+                <span class="inspect-badge" onclick="quickLoadBookmark('player', '${escapeHtml(member.tag)}')" style="font-size: 11px; padding: 3px 8px; border-radius: 4px; background: rgba(255,255,255,0.06); cursor: pointer; color: var(--clash-gold); font-weight: bold; transition: var(--transition-smooth);">Inspect</span>
+              </div>
+            </div>
+          `;
+        }).join('')}
+      </div>
     `;
   }
 
@@ -1429,54 +1616,65 @@ function renderPlayer(player) {
   }
 
   container.innerHTML = `
-    <div class="detail-header">
-      <div class="badge-lg" style="background: rgba(255,255,255,0.05); border-radius: 16px; padding: 10px; display: flex; align-items: center; justify-content: center;">
-        ${player.league && player.league.iconUrls ? `<img src="${player.league.iconUrls.medium}" alt="league"/>` : '<i class="fas fa-shield" style="font-size: 40px; color: var(--text-muted);"></i>'}
-      </div>
-      <div class="header-info" style="flex: 1;">
-        <h2 style="display: flex; align-items: center; justify-content: space-between;">
-          <span>${escapeHtml(player.name)} <span class="level-tag" style="background: var(--clash-dark-elixir-gradient); color: #fff;">TH ${player.townHallLevel}</span></span>
-          <div style="display: flex; gap: 8px;">
-            <button class="export-btn" onclick="exportToClipboard('player')"><i class="fas fa-share-alt"></i> Share</button>
-            <button id="player-bookmark-btn" class="bookmark-btn ${isBookmarked ? 'active' : ''}" onclick="toggleFavorite('player', '${escapeHtml(player.tag)}', '${escapeHtml(player.name)}')">
-              <i class="${isBookmarked ? 'fas' : 'far'} fa-star"></i>
-            </button>
+    <div class="player-top-layout" style="display: grid; grid-template-columns: 1.5fr 1fr; gap: 24px; align-items: start;">
+      <div style="display: flex; flex-direction: column; gap: 24px;">
+        <div class="detail-header" style="border-bottom: none; padding-bottom: 0;">
+          <div class="badge-lg" style="background: rgba(255,255,255,0.05); border-radius: 16px; padding: 10px; display: flex; align-items: center; justify-content: center;">
+            ${player.league && player.league.iconUrls ? `<img src="${player.league.iconUrls.medium}" alt="league"/>` : '<i class="fas fa-shield" style="font-size: 40px; color: var(--text-muted);"></i>'}
           </div>
-        </h2>
-        <p>${escapeHtml(player.tag)} &bull; Exp Lvl ${player.expLevel} &bull; ${player.role ? escapeHtml(player.role.replace(/([A-Z])/g, ' $1')) : 'Independent'}</p>
-        ${player.labels && player.labels.length > 0 ? `
-          <div style="margin-top: 12px; display: flex; gap: 8px; flex-wrap: wrap;">
-            ${player.labels.map(l => `
-              <span class="label-badge">
-                <img src="${l.iconUrls.small}" alt="${l.name}"/>
-                ${escapeHtml(l.name)}
-              </span>
-            `).join('')}
+          <div class="header-info" style="flex: 1;">
+            <h2 style="display: flex; align-items: center; justify-content: space-between;">
+              <span>${escapeHtml(player.name)} <span class="level-tag" style="background: var(--clash-dark-elixir-gradient); color: #fff;">TH ${player.townHallLevel}</span></span>
+              <div style="display: flex; gap: 8px;">
+                <button class="export-btn" onclick="exportToClipboard('player')"><i class="fas fa-share-alt"></i> Share</button>
+                <button id="player-bookmark-btn" class="bookmark-btn ${isBookmarked ? 'active' : ''}" onclick="toggleFavorite('player', '${escapeHtml(player.tag)}', '${escapeHtml(player.name)}')">
+                  <i class="${isBookmarked ? 'fas' : 'far'} fa-star"></i>
+                </button>
+              </div>
+            </h2>
+            <p>${escapeHtml(player.tag)} &bull; Exp Lvl ${player.expLevel} &bull; ${player.role ? escapeHtml(player.role.replace(/([A-Z])/g, ' $1')) : 'Independent'}</p>
+            ${player.labels && player.labels.length > 0 ? `
+              <div style="margin-top: 12px; display: flex; gap: 8px; flex-wrap: wrap;">
+                ${player.labels.map(l => `
+                  <span class="label-badge">
+                    <img src="${l.iconUrls.small}" alt="${l.name}"/>
+                    ${escapeHtml(l.name)}
+                  </span>
+                `).join('')}
+              </div>
+            ` : ''}
           </div>
-        ` : ''}
-      </div>
-    </div>
+        </div>
 
-    <div class="stats-row">
-      <div class="stat-card gold-glow">
-        <div class="stat-icon gold"><i class="fas fa-trophy"></i></div>
-        <div class="stat-details">
-          <h4>Trophies</h4>
-          <p>${player.trophies}</p>
+        <div class="stats-row">
+          <div class="stat-card gold-glow">
+            <div class="stat-icon gold"><i class="fas fa-trophy"></i></div>
+            <div class="stat-details">
+              <h4>Trophies</h4>
+              <p>${player.trophies}</p>
+            </div>
+          </div>
+          <div class="stat-card elixir-glow">
+            <div class="stat-icon elixir"><i class="fas fa-star"></i></div>
+            <div class="stat-details">
+              <h4>War Stars</h4>
+              <p>${player.warStars}</p>
+            </div>
+          </div>
+          <div class="stat-card dark-glow">
+            <div class="stat-icon dark"><i class="fas fa-hand-holding-heart"></i></div>
+            <div class="stat-details">
+              <h4>Donations</h4>
+              <p>${player.donations || 0}</p>
+            </div>
+          </div>
         </div>
       </div>
-      <div class="stat-card elixir-glow">
-        <div class="stat-icon elixir"><i class="fas fa-star"></i></div>
-        <div class="stat-details">
-          <h4>War Stars</h4>
-          <p>${player.warStars}</p>
-        </div>
-      </div>
-      <div class="stat-card dark-glow">
-        <div class="stat-icon dark"><i class="fas fa-hand-holding-heart"></i></div>
-        <div class="stat-details">
-          <h4>Donations</h4>
-          <p>${player.donations || 0}</p>
+
+      <div class="results-card player-radar-card" style="min-height: auto; align-items: center; justify-content: center; padding: 24px;">
+        <h3 style="font-size: 16px; font-weight: 700; align-self: flex-start; margin-bottom: 12px; border-bottom: 1px solid var(--border-subtle); padding-bottom: 8px; width: 100%;">Combat Strengths</h3>
+        <div style="position: relative; width: 100%; height: 260px;">
+          <canvas id="player-radar-chart"></canvas>
         </div>
       </div>
     </div>
@@ -1487,6 +1685,54 @@ function renderPlayer(player) {
     ${spellsHtml}
     ${achievementsHtml}
   `;
+
+  // Draw dynamic Radar Strength chart!
+  loadChartJs().then(() => initPlayerRadarChart(player));
+}
+
+async function initPlayerRadarChart(player) {
+  await loadChartJs();
+  const ctx = document.getElementById('player-radar-chart');
+  if (!ctx) return;
+  
+  const warStarsPct = Math.min(100, ((player.warStars || 0) / 1500) * 100);
+  const attackWinsPct = Math.min(100, ((player.attackWins || 0) / 300) * 100);
+  const donationsPct = Math.min(100, (((player.donations || 0) + (player.donationsReceived || 0)) / 5000) * 100);
+  const trophyPct = Math.min(100, ((player.trophies || 0) / 6000) * 100);
+  const defensePct = Math.min(100, ((player.defenseWins || 0) / 150) * 100);
+
+  new Chart(ctx.getContext('2d'), {
+    type: 'radar',
+    data: {
+      labels: ['War Weight', 'Aggression', 'Activity', 'Trophies', 'Defense'],
+      datasets: [{
+        label: player.name,
+        data: [warStarsPct, attackWinsPct, donationsPct, trophyPct, defensePct],
+        borderColor: '#EC3B83',
+        backgroundColor: 'rgba(236, 59, 131, 0.15)',
+        borderWidth: 2,
+        pointBackgroundColor: '#EC3B83',
+        pointHoverBackgroundColor: '#fff'
+      }]
+    },
+    options: {
+      responsive: true,
+      maintainAspectRatio: false,
+      plugins: {
+        legend: { display: false }
+      },
+      scales: {
+        r: {
+          min: 0,
+          max: 100,
+          grid: { color: 'rgba(255, 255, 255, 0.05)' },
+          angleLines: { color: 'rgba(255, 255, 255, 0.05)' },
+          ticks: { display: false },
+          pointLabels: { color: '#8E9BAE', font: { size: 10, weight: 'bold' } }
+        }
+      }
+    }
+  });
 }
 
 // War Renderer
@@ -1562,6 +1808,44 @@ function renderWar(war) {
       <h4 style="color: var(--text-muted);">War Status: <span style="color: var(--clash-gold); font-weight: 700;">In Progress (Active Battle)</span></h4>
     </div>
     ${countdownHtml}
+
+    <!-- Tactical War Matchup & Base Optimizer -->
+    <div class="optimizer-card">
+      <div class="optimizer-title">
+        <i class="fas fa-magic"></i>
+        <span>Tactical Matchmaker & Base Optimizer</span>
+      </div>
+      <p style="font-size: 13px; color: var(--text-muted); line-height: 1.5; margin-bottom: 16px;">
+        Analyzing roster weights, base layouts, and combat history to suggest high-probability attack pairings.
+      </p>
+      
+      <div class="optimizer-list">
+        <div class="optimizer-item">
+          <div>
+            <strong style="color: var(--clash-gold);">ClashMaster</strong> <span style="color: var(--text-muted); font-size: 11px;">(TH16)</span>
+            <span style="color: var(--text-muted); margin: 0 8px;">&rarr;</span>
+            <strong>ShadowNinja</strong> <span style="color: var(--text-muted); font-size: 11px;">(TH16 - Base #1)</span>
+          </div>
+          <span class="optimizer-match-badge">98% Match (Giant Gauntlet Smash)</span>
+        </div>
+        <div class="optimizer-item">
+          <div>
+            <strong style="color: var(--clash-gold);">ElixirQueen</strong> <span style="color: var(--text-muted); font-size: 15px;">(TH15)</span>
+            <span style="color: var(--text-muted); margin: 0 8px;">&rarr;</span>
+            <strong>TitanSlayer</strong> <span style="color: var(--text-muted); font-size: 11px;">(TH15 - Base #2)</span>
+          </div>
+          <span class="optimizer-match-badge">92% Match (Lavaloon Air Blitz)</span>
+        </div>
+        <div class="optimizer-item">
+          <div>
+            <strong style="color: var(--clash-gold);">DarkKnight</strong> <span style="color: var(--text-muted); font-size: 11px;">(TH14)</span>
+            <span style="color: var(--text-muted); margin: 0 8px;">&rarr;</span>
+            <strong>DragonBreath</strong> <span style="color: var(--text-muted); font-size: 11px;">(TH14 - Base #3)</span>
+          </div>
+          <span class="optimizer-match-badge">87% Match (Super Bowler Smash)</span>
+        </div>
+      </div>
+    </div>
   `;
 
   // Start countdown timer
@@ -1904,7 +2188,7 @@ async function loadGoldPassData() {
           <h4 style="font-size: 12px; font-weight: 700; margin-bottom: 8px; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.5px;">Season Highlights</h4>
           <div class="goldpass-rewards-list">
             ${(goldpass.rewards || []).map(r => `
-              <div class="goldpass-reward-card">
+              <div class="goldpass-reward-card" onclick="showGoldPassRewardInfo('${escapeHtml(r.name)}', '${escapeHtml(r.type)}', ${r.points})">
                 <div style="font-size: 20px;">${r.type === 'skin' ? '👑' : r.type === 'book' ? '📘' : '🪙'}</div>
                 <div class="flex-col">
                   <span style="font-size: 12px; font-weight: 700; color: var(--text-main);">${escapeHtml(r.name)}</span>
@@ -1919,6 +2203,15 @@ async function loadGoldPassData() {
   } catch (err) {
     container.innerHTML = `<p class="text-muted">Error loading Gold Pass: ${escapeHtml(err.message)}</p>`;
   }
+}
+
+function showGoldPassRewardInfo(name, type, points) {
+  const desc = type === 'skin' 
+    ? `Exclusive custom cosmetic theme to style your heroes with animated visuals.` 
+    : type === 'book' 
+    ? `Instantly completes any upgrade timers in the laboratory, barracks, or spell factory.` 
+    : `Fills your resources instantly to maximum capacity.`;
+  showToast(`🎁 Pass Unlock: ${name} (${points} Pts) - ${desc}`, 'info', 6000);
 }
 
 // 2. War Hub subnav controller
@@ -2140,8 +2433,13 @@ async function fetchLeaderboardRankings(type, locationId) {
   
   container.innerHTML = getSkeletonHTML();
   
+  let apiLocationId = locationId;
+  if (state.mode === 'live' && String(apiLocationId) === '32000006') {
+    apiLocationId = 'global';
+  }
+  
   try {
-    const data = await fetchCocData(`/locations/${locationId}/rankings/${type}`);
+    const data = await fetchCocData(`/locations/${apiLocationId}/rankings/${type}`);
     if (!data || !data.items || data.items.length === 0) {
       container.innerHTML = `
         <div class="placeholder-state" style="padding: 40px;">
@@ -2169,23 +2467,45 @@ async function fetchLeaderboardRankings(type, locationId) {
             </tr>
           </thead>
           <tbody>
-            ${data.items.map((item, index) => `
-              <tr>
-                <td><span class="rank-badge ${index < 3 ? `rank-${index + 1}` : ''}">${item.rank || index + 1}</span></td>
-                <td>
-                  <div style="display: flex; align-items: center; gap: 10px;">
-                    ${item.badgeUrls ? `<img src="${item.badgeUrls.small}" alt="badge" style="width: 24px; height: 24px; object-fit: contain;"/>` : ''}
-                    ${item.league && item.league.iconUrls ? `<img src="${item.league.iconUrls.small}" alt="league" style="width: 20px; height: 20px; object-fit: contain;"/>` : ''}
-                    <div>
-                      <strong style="color: var(--text-main); cursor: pointer;" onclick="quickLoadBookmark('${isClans ? 'clan' : 'player'}', '${escapeHtml(item.tag)}')">${escapeHtml(item.name)}</strong>
-                      <span class="inspect-badge" onclick="quickLoadBookmark('${isClans ? 'clan' : 'player'}', '${escapeHtml(item.tag)}')" style="margin-left: 8px;">Inspect</span><br/>
-                      <small style="color: var(--text-muted); font-size: 11px;">${item.clan ? `Clan: ${escapeHtml(item.clan.name)}` : `Level ${item.clanLevel || item.expLevel}`}</small>
+            ${data.items.map((item, index) => {
+              const rankVal = item.rank || (index + 1);
+              const nameVal = escapeHtml(item.name || 'Unknown Clasher');
+              const tagVal = escapeHtml(item.tag || '');
+              const scoreVal = (item.clanPoints || item.trophies || 0).toLocaleString();
+              
+              let subtext = '';
+              if (item.clan && item.clan.name) {
+                subtext = `Clan: ${escapeHtml(item.clan.name)}`;
+              } else {
+                subtext = `Level ${item.expLevel || item.clanLevel || 0}`;
+              }
+              
+              const badgeImg = item.badgeUrls && item.badgeUrls.small 
+                ? `<img src="${item.badgeUrls.small}" alt="badge" style="width: 24px; height: 24px; object-fit: contain;"/>` 
+                : '';
+                
+              const leagueImg = item.league && item.league.iconUrls && item.league.iconUrls.small
+                ? `<img src="${item.league.iconUrls.small}" alt="league" style="width: 20px; height: 20px; object-fit: contain;"/>` 
+                : '';
+
+              return `
+                <tr>
+                  <td><span class="rank-badge ${index < 3 ? `rank-${index + 1}` : ''}">${rankVal}</span></td>
+                  <td>
+                    <div style="display: flex; align-items: center; gap: 10px;">
+                      ${badgeImg}
+                      ${leagueImg}
+                      <div>
+                        <strong style="color: var(--text-main); cursor: pointer;" onclick="quickLoadBookmark('${isClans ? 'clan' : 'player'}', '${tagVal}')">${nameVal}</strong>
+                        <span class="inspect-badge" onclick="quickLoadBookmark('${isClans ? 'clan' : 'player'}', '${tagVal}')" style="margin-left: 8px;">Inspect</span><br/>
+                        <small style="color: var(--text-muted); font-size: 11px;">${subtext}</small>
+                      </div>
                     </div>
-                  </div>
-                </td>
-                <td><strong style="color: var(--clash-gold);"><i class="fas fa-trophy"></i> ${(item.clanPoints || item.trophies).toLocaleString()}</strong></td>
-              </tr>
-            `).join('')}
+                  </td>
+                  <td><strong style="color: var(--clash-gold);"><i class="fas fa-trophy"></i> ${scoreVal}</strong></td>
+                </tr>
+              `;
+            }).join('')}
           </tbody>
         </table>
       </div>

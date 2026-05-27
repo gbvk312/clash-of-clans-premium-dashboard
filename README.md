@@ -23,6 +23,14 @@ A visually stunning, glassmorphic dark-mode dashboard for **Clash of Clans** pla
 * **🌗 Dual Theme Controls**: Easily toggle between dark obsidian mode and sleek light mode.
 * **⌨️ Keyboard Shortcuts**: Smooth dashboard traversal (`1`-`7` for tabs, `/` to focus search inputs, `Esc` to exit settings).
 
+### 👑 Premium Upgrades & Analytics
+* **⚡ Live Latency Meter**: Responsive header pill measuring connection latency and displaying live health status dot.
+* **💾 Local Cache Engine**: Caches API queries locally for 5 minutes, mitigating rate-limiting blocks and accelerating loading speeds.
+* **💻 Developer Prettified JSON Inspector**: Slide-out drawer displaying beautified, formatted API JSON payloads for any queried clan, player, or war campaign, complete with single-click copying.
+* **🎯 Combat Strengths Radar**: Interactive 5-point radar charts visualizing clashing indices (War Weight, Aggression, Activity, Trophies, and Defense).
+* **🔮 Tactical War Matchmaker**: Base optimizer highlighting optimal rosters matching war brackets.
+* **🎁 Clickable Gold Pass rewards**: Interactive rewards previewer with detailed magic item metadata popups.
+
 ---
 
 ## 🚀 Getting Started

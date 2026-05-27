@@ -1908,4 +1908,309 @@ body.theme-light .war-feed-item {
   border-color: var(--clash-gold);
 }
 
+/* =======================================================
+   🛡️ PREMIUM DEEPMIND ANITGRAVITY DASHBOARD DESIGN UPGRADES
+   ======================================================= */
+
+/* 1. Global Glassmorphism Enhancements */
+body {
+  background: radial-gradient(circle at 10% 20%, rgba(18, 21, 25, 0.95) 0%, rgba(9, 11, 14, 0.98) 90%);
+}
+.results-card, .sidebar-card, .modal-content, .drawer-content {
+  background: rgba(26, 30, 36, 0.55) !important;
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  box-shadow: 0 16px 48px rgba(0, 0, 0, 0.5);
+  transition: transform 0.4s cubic-bezier(0.2, 0.8, 0.2, 1), border-color 0.3s ease, box-shadow 0.3s ease;
+}
+.results-card:hover {
+  border-color: rgba(255, 255, 255, 0.12);
+  box-shadow: 0 20px 60px rgba(245, 166, 35, 0.05);
+}
+
+/* 2. Latency Pill & Connection Health Indicators */
+.latency-pill {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid var(--border-subtle);
+  padding: 6px 14px;
+  border-radius: 20px;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-muted);
+  transition: var(--transition-smooth);
+}
+.latency-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background-color: var(--text-muted);
+  display: inline-block;
+}
+.latency-pill.status-success {
+  background: rgba(74, 219, 134, 0.05);
+  border-color: rgba(74, 219, 134, 0.2);
+  color: #4adb86;
+}
+.latency-pill.status-success .latency-dot {
+  background-color: #4adb86;
+  box-shadow: 0 0 10px #4adb86;
+  animation: pulse-dot 1.5s infinite;
+}
+.latency-pill.status-warning {
+  background: rgba(245, 166, 35, 0.05);
+  border-color: rgba(245, 166, 35, 0.2);
+  color: var(--clash-gold);
+}
+.latency-pill.status-warning .latency-dot {
+  background-color: var(--clash-gold);
+  box-shadow: 0 0 10px var(--clash-gold);
+  animation: pulse-dot 1.5s infinite;
+}
+.latency-pill.status-error, .latency-pill.status-offline {
+  background: rgba(236, 59, 131, 0.05);
+  border-color: rgba(236, 59, 131, 0.2);
+  color: var(--clash-elixir);
+}
+.latency-pill.status-error .latency-dot, .latency-pill.status-offline .latency-dot {
+  background-color: var(--clash-elixir);
+  box-shadow: 0 0 10px var(--clash-elixir);
+}
+
+/* 3. Prettified JSON Side Drawer */
+dialog.drawer {
+  position: fixed;
+  top: 0;
+  right: 0;
+  left: auto;
+  width: 480px;
+  height: 100vh;
+  margin: 0;
+  background: transparent;
+  border: none;
+  max-width: calc(100vw - 20px);
+  animation: slideInRight 0.4s cubic-bezier(0.2, 0.8, 0.2, 1);
+  display: none;
+}
+dialog.drawer[open] {
+  display: flex;
+}
+.drawer-content {
+  width: 100%;
+  height: 100%;
+  background: rgba(18, 21, 25, 0.95);
+  border-left: 1px solid var(--border-subtle);
+  display: flex;
+  flex-direction: column;
+  padding: 32px 24px;
+}
+.drawer-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  border-bottom: 1px solid var(--border-subtle);
+  padding-bottom: 16px;
+  margin-bottom: 20px;
+}
+.drawer-header h3 {
+  font-size: 20px;
+  font-weight: 800;
+  color: #fff;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.drawer-body {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+}
+
+@keyframes slideInRight {
+  from { transform: translateX(100%); }
+  to { transform: translateX(0); }
+}
+
+/* 4. Global Inspect Toggle Button */
+.floating-inspect-btn {
+  position: fixed;
+  bottom: 30px;
+  right: 30px;
+  width: 56px;
+  height: 56px;
+  border-radius: 50%;
+  background: var(--clash-gold-gradient);
+  border: none;
+  color: #fff;
+  font-size: 20px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  box-shadow: 0 8px 32px var(--clash-gold-glow);
+  z-index: 99;
+  transition: var(--transition-smooth);
+}
+.floating-inspect-btn:hover {
+  transform: scale(1.1) rotate(15deg);
+  box-shadow: 0 12px 40px rgba(245, 166, 35, 0.6);
+}
+.floating-inspect-btn::after {
+  content: '';
+  position: absolute;
+  top: 0; right: 0;
+  width: 12px; height: 12px;
+  background-color: #4adb86;
+  border-radius: 50%;
+  border: 2px solid var(--bg-obsidian);
+  transform: scale(0);
+  transition: var(--transition-smooth);
+}
+.floating-inspect-btn.has-data::after {
+  transform: scale(1);
+}
+
+/* 5. Town Hall Thematic Custom Border and Glow Styles */
+.th-theme-th16 { border-color: rgba(74, 219, 134, 0.3) !important; box-shadow: inset 0 0 20px rgba(74, 219, 134, 0.05), 0 8px 32px rgba(74, 219, 134, 0.1) !important; }
+.th-theme-th15 { border-color: rgba(139, 68, 253, 0.3) !important; box-shadow: inset 0 0 20px rgba(139, 68, 253, 0.05), 0 8px 32px rgba(139, 68, 253, 0.1) !important; }
+.th-theme-th14 { border-color: rgba(245, 166, 35, 0.3) !important; box-shadow: inset 0 0 20px rgba(245, 166, 35, 0.05), 0 8px 32px rgba(245, 166, 35, 0.1) !important; }
+.th-theme-th13 { border-color: rgba(0, 191, 255, 0.3) !important; box-shadow: inset 0 0 20px rgba(0, 191, 255, 0.05), 0 8px 32px rgba(0, 191, 255, 0.1) !important; }
+.th-theme-th12 { border-color: rgba(0, 102, 204, 0.3) !important; box-shadow: inset 0 0 20px rgba(0, 102, 204, 0.05), 0 8px 32px rgba(0, 102, 204, 0.1) !important; }
+.th-theme-th11 { border-color: rgba(255, 255, 255, 0.2) !important; box-shadow: inset 0 0 20px rgba(255, 255, 255, 0.02), 0 8px 32px rgba(255, 255, 255, 0.05) !important; }
+.th-theme-th10 { border-color: rgba(236, 59, 131, 0.3) !important; box-shadow: inset 0 0 20px rgba(236, 59, 131, 0.05), 0 8px 32px rgba(236, 59, 131, 0.1) !important; }
+
+/* 6. Premium Interactive Roster Cards */
+.roster-grid-premium {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
+  gap: 20px;
+  margin-top: 20px;
+}
+.roster-card-premium {
+  background: rgba(18, 21, 25, 0.7);
+  border: 1px solid var(--border-subtle);
+  border-radius: 16px;
+  padding: 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  position: relative;
+  overflow: hidden;
+  transition: var(--transition-smooth);
+}
+.roster-card-premium:hover {
+  transform: translateY(-5px);
+  border-color: rgba(255, 255, 255, 0.15);
+  box-shadow: 0 12px 30px rgba(0,0,0,0.4);
+}
+.roster-card-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+.roster-card-member-info {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.roster-card-league-icon {
+  width: 32px;
+  height: 32px;
+  object-fit: contain;
+}
+.th-badge {
+  background: var(--clash-dark-elixir-gradient);
+  color: #fff;
+  font-size: 11px;
+  font-weight: 800;
+  padding: 2px 6px;
+  border-radius: 6px;
+}
+.role-tag {
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+  padding: 2px 8px;
+  border-radius: 20px;
+  width: max-content;
+}
+.role-tag.leader { background: rgba(245, 166, 35, 0.15); color: var(--clash-gold); }
+.role-tag.coLeader { background: rgba(236, 59, 131, 0.15); color: var(--clash-elixir); }
+.role-tag.elder { background: rgba(139, 68, 253, 0.15); color: var(--clash-dark-elixir); }
+.role-tag.member { background: rgba(255, 255, 255, 0.05); color: var(--text-muted); }
+
+/* 7. Gold Pass Rewards Cards styling */
+.goldpass-rewards-list {
+  display: flex;
+  gap: 12px;
+  overflow-x: auto;
+  padding: 8px 4px 16px;
+  scrollbar-width: thin;
+}
+.goldpass-reward-card {
+  flex: 0 0 160px;
+  background: var(--bg-stone-dark);
+  border: 1px solid var(--border-subtle);
+  border-radius: 12px;
+  padding: 16px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+  gap: 8px;
+  cursor: pointer;
+  transition: var(--transition-smooth);
+}
+.goldpass-reward-card:hover {
+  transform: translateY(-4px);
+  border-color: var(--clash-gold);
+  background: rgba(245, 166, 35, 0.03);
+}
+
+/* 8. Tactical Matchmaker & Optimizer */
+.optimizer-card {
+  background: linear-gradient(135deg, rgba(245, 166, 35, 0.05) 0%, rgba(26, 30, 36, 0.9) 100%);
+  border: 1px solid rgba(245, 166, 35, 0.2);
+  border-radius: 16px;
+  padding: 24px;
+  margin-top: 24px;
+}
+.optimizer-title {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 18px;
+  font-weight: 800;
+  color: var(--clash-gold);
+  margin-bottom: 12px;
+}
+.optimizer-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: 16px;
+}
+.optimizer-item {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  background: var(--bg-stone-dark);
+  border: 1px solid var(--border-subtle);
+  border-radius: 10px;
+  padding: 12px 16px;
+  font-size: 13px;
+}
+.optimizer-match-badge {
+  background: rgba(74, 219, 134, 0.15);
+  color: #4adb86;
+  font-weight: 700;
+  font-size: 11px;
+  padding: 3px 8px;
+  border-radius: 4px;
+}
+
+
 
