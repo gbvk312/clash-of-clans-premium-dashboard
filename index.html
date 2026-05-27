@@ -48,6 +48,16 @@
         <span>War Tracker</span>
         <span class="kbd-hint">4</span>
       </li>
+      <li class="nav-item" data-tab="leaderboards" role="tab" tabindex="0" aria-selected="false" aria-controls="leaderboards-pane">
+        <i class="fas fa-trophy"></i>
+        <span>Leaderboards</span>
+        <span class="kbd-hint">6</span>
+      </li>
+      <li class="nav-item" data-tab="capital" role="tab" tabindex="0" aria-selected="false" aria-controls="capital-pane">
+        <i class="fas fa-fort-awesome"></i>
+        <span>Capital Raids</span>
+        <span class="kbd-hint">7</span>
+      </li>
       <li class="nav-divider"></li>
       <li class="nav-item" data-tab="compare" role="tab" tabindex="0" aria-selected="false" aria-controls="compare-pane">
         <i class="fas fa-balance-scale"></i>
@@ -121,7 +131,7 @@
               </div>
               <button class="config-btn" onclick="switchTab('clan')" style="font-size: 13px; padding: 6px 14px; border-radius: 8px;">View Full Roster</button>
             </div>
-            <p id="overview-clan-desc" style="color: var(--text-muted); line-height: 1.5; font-size: 14px;"></p>
+            <p id="overview-clan-desc" style="color: var(--text-muted); line-height: 1.5; font-size: 14px; margin-top: 12px;"></p>
             
             <div class="stats-row" style="margin-top: 12px;">
               <div class="stat-card" style="padding: 16px; background: var(--bg-stone-dark);">
@@ -146,6 +156,11 @@
                 </div>
               </div>
             </div>
+            
+            <!-- Recruitment playstyle labels -->
+            <div id="overview-clan-labels" class="label-badge-container" style="margin-top: 16px; display: flex; gap: 8px; flex-wrap: wrap;">
+              <!-- Populated by app.js -->
+            </div>
           </div>
 
           <!-- Overview Analytics Card -->
@@ -155,6 +170,11 @@
               <canvas id="overview-chart"></canvas>
             </div>
           </div>
+        </div>
+
+        <!-- Gold Pass season tracker widget -->
+        <div class="results-card" id="goldpass-widget-container" style="min-height: auto; padding: 24px;">
+          <!-- Populated by app.js -->
         </div>
       </div>
     </section>
@@ -216,24 +236,98 @@
             </button>
           </form>
         </div>
-        <div style="display: flex; flex-direction: column; gap: 32px;">
-          <div class="results-card" id="war-results-container" style="min-height: auto;">
-            <!-- Populated by app.js -->
+        
+        <div style="display: flex; flex-direction: column; gap: 24px;">
+          <!-- War Hub subnavigation -->
+          <div class="sub-nav-bar" id="war-hub-subnav" style="display: none;">
+            <button class="sub-nav-btn active" data-subtab="active">Active War</button>
+            <button class="sub-nav-btn" data-subtab="cwl">War League (CWL)</button>
+            <button class="sub-nav-btn" data-subtab="history">War History</button>
           </div>
-          
-          <!-- Live War Feed Activity Logs (Simulated / Real Stream) -->
-          <div class="war-feed-container" id="war-feed-card" style="display: none;">
-            <div style="display: flex; align-items: center; justify-content: space-between; border-bottom: 1px solid var(--border-subtle); padding-bottom: 12px;">
-              <h3 style="font-size: 18px; font-weight: 700; display: flex; align-items: center; gap: 10px;">
-                <i class="fas fa-satellite-dish" style="color: var(--clash-gold); animation: pulse-dot 1.5s infinite;"></i>
-                Live Combat Event Log
-              </h3>
-              <span class="badge-small" style="background: rgba(74, 219, 134, 0.15); color: #4adb86; font-size: 11px;">AUTO-STREAM ACTIVE</span>
+
+          <!-- SUB-VIEW 4A: Active War -->
+          <div id="war-subview-active" class="war-subview active" style="display: flex; flex-direction: column; gap: 24px;">
+            <div class="results-card" id="war-results-container" style="min-height: auto;">
+              <!-- Populated by app.js -->
             </div>
-            <ul class="war-feed-list" id="war-feed-timeline">
-              <!-- Animated events will insert dynamically here -->
-            </ul>
+            
+            <!-- Live Combat Event Log -->
+            <div class="war-feed-container" id="war-feed-card" style="display: none;">
+              <div style="display: flex; align-items: center; justify-content: space-between; border-bottom: 1px solid var(--border-subtle); padding-bottom: 12px;">
+                <h3 style="font-size: 18px; font-weight: 700; display: flex; align-items: center; gap: 10px;">
+                  <i class="fas fa-satellite-dish" style="color: var(--clash-gold); animation: pulse-dot 1.5s infinite;"></i>
+                  Live Combat Event Log
+                </h3>
+                <span class="badge-small" style="background: rgba(74, 219, 134, 0.15); color: #4adb86; font-size: 11px;">AUTO-STREAM ACTIVE</span>
+              </div>
+              <ul class="war-feed-list" id="war-feed-timeline">
+                <!-- Animated events insert here -->
+              </ul>
+            </div>
           </div>
+
+          <!-- SUB-VIEW 4B: CWL Standings -->
+          <div id="war-subview-cwl" class="war-subview" style="display: none;">
+            <div class="results-card" id="cwl-results-container">
+              <!-- Populated by app.js -->
+            </div>
+          </div>
+
+          <!-- SUB-VIEW 4C: War History -->
+          <div id="war-subview-history" class="war-subview" style="display: none;">
+            <div class="results-card" id="war-history-results-container">
+              <!-- Populated by app.js -->
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- VIEW: Leaderboards -->
+    <section id="leaderboards-pane" class="view-pane" role="tabpanel" aria-labelledby="leaderboards-tab">
+      <div class="explorer-grid">
+        <div class="sidebar-card">
+          <h3>Rankings Filters</h3>
+          <div class="input-group">
+            <label for="leaderboard-type">Rankings Type</label>
+            <select id="leaderboard-type" class="search-form" style="width: 100%; background: var(--bg-stone); border: 1px solid var(--border-subtle); color: var(--text-main); padding: 10px 14px; border-radius: 8px; font-size: 14px;">
+              <option value="clans">Top Clans</option>
+              <option value="players">Top Players</option>
+            </select>
+          </div>
+          <div class="input-group mt-16">
+            <label for="leaderboard-location">Region / Location</label>
+            <select id="leaderboard-location" class="search-form" style="width: 100%; background: var(--bg-stone); border: 1px solid var(--border-subtle); color: var(--text-main); padding: 10px 14px; border-radius: 8px; font-size: 14px;">
+              <!-- Populated dynamically -->
+            </select>
+          </div>
+          <button id="fetch-leaderboard-btn" class="primary-btn mt-16" style="width: 100%;">
+            <i class="fas fa-sync-alt" style="margin-right: 8px;"></i> Fetch Rankings
+          </button>
+        </div>
+        <div class="results-card" id="leaderboards-results-container">
+          <!-- Populated by app.js -->
+        </div>
+      </div>
+    </section>
+
+    <!-- VIEW: Capital Raids -->
+    <section id="capital-pane" class="view-pane" role="tabpanel" aria-labelledby="capital-tab">
+      <div class="explorer-grid">
+        <div class="sidebar-card">
+          <h3>Capital Lookup</h3>
+          <form id="capital-search-form" class="search-form">
+            <div class="input-group">
+              <label for="capital-clan-tag-input">Clan Tag</label>
+              <input type="text" id="capital-clan-tag-input" placeholder="e.g. #2PP2PP2P" required>
+            </div>
+            <button type="submit" class="primary-btn">
+              <i class="fas fa-search" style="margin-right: 8px;"></i> Load Capital
+            </button>
+          </form>
+        </div>
+        <div class="results-card" id="capital-results-container">
+          <!-- Populated by app.js -->
         </div>
       </div>
     </section>

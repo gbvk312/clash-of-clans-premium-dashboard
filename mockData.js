@@ -380,6 +380,141 @@ const MOCK_WARS = {
   }
 };
 
+const MOCK_CWL = {
+  "#2PP2PP2P": {
+    state: "inWar",
+    season: "2026-05",
+    clans: [
+      { tag: "#2PP2PP2P", name: "Nova Esports", clanLevel: 24, badgeUrls: { small: "https://api-assets.clashofclans.com/badges/70/4n907wz4IqgW-JpA6tWnUq8pU08VzFq0832J4mD5d_0.png" } },
+      { tag: "#8U2RYV0Y", name: "Dark Elixir", clanLevel: 18, badgeUrls: { small: "https://api-assets.clashofclans.com/badges/70/u32qC3wKj2Vex8Tz75j8GgNlG2aLd4R18D80F124e_0.png" } },
+      { tag: "#CWL33333", name: "War Syndicate", clanLevel: 20, badgeUrls: { small: "https://api-assets.clashofclans.com/badges/70/u32qC3wKj2Vex8Tz75j8GgNlG2aLd4R18D80F124e_0.png" } },
+      { tag: "#CWL44444", name: "Alpha Squad", clanLevel: 16, badgeUrls: { small: "https://api-assets.clashofclans.com/badges/70/4n907wz4IqgW-JpA6tWnUq8pU08VzFq0832J4mD5d_0.png" } },
+      { tag: "#CWL55555", name: "Elite Kings", clanLevel: 22, badgeUrls: { small: "https://api-assets.clashofclans.com/badges/70/u32qC3wKj2Vex8Tz75j8GgNlG2aLd4R18D80F124e_0.png" } },
+      { tag: "#CWL66666", name: "Viking Storm", clanLevel: 19, badgeUrls: { small: "https://api-assets.clashofclans.com/badges/70/4n907wz4IqgW-JpA6tWnUq8pU08VzFq0832J4mD5d_0.png" } },
+      { tag: "#CWL77777", name: "Titan Hunters", clanLevel: 21, badgeUrls: { small: "https://api-assets.clashofclans.com/badges/70/u32qC3wKj2Vex8Tz75j8GgNlG2aLd4R18D80F124e_0.png" } },
+      { tag: "#CWL88888", name: "Phoenix Reborn", clanLevel: 17, badgeUrls: { small: "https://api-assets.clashofclans.com/badges/70/4n907wz4IqgW-JpA6tWnUq8pU08VzFq0832J4mD5d_0.png" } }
+    ],
+    rounds: [
+      { warTags: ["#ROUND1_WAR1", "#ROUND1_WAR2", "#ROUND1_WAR3", "#ROUND1_WAR4"] },
+      { warTags: ["#ROUND2_WAR1", "#ROUND2_WAR2", "#ROUND2_WAR3", "#ROUND2_WAR4"] },
+      { warTags: ["#ROUND3_WAR1", "#ROUND3_WAR2", "#ROUND3_WAR3", "#ROUND3_WAR4"] }
+    ]
+  }
+};
+
+const MOCK_LEADERBOARDS = {
+  locations: [
+    { id: 32000006, name: "International", isCountry: false },
+    { id: 32000254, name: "United States", isCountry: true },
+    { id: 32000107, name: "India", isCountry: true },
+    { id: 32000085, name: "Germany", isCountry: true }
+  ],
+  clans: {
+    32000006: [
+      { rank: 1, tag: "#2PP2PP2P", name: "Nova Esports", clanLevel: 24, clanPoints: 61250, badgeUrls: { small: "https://api-assets.clashofclans.com/badges/70/4n907wz4IqgW-JpA6tWnUq8pU08VzFq0832J4mD5d_0.png" } },
+      { rank: 2, tag: "#LB_CLAN2", name: "Tribe Gaming", clanLevel: 22, clanPoints: 59800, badgeUrls: { small: "https://api-assets.clashofclans.com/badges/70/u32qC3wKj2Vex8Tz75j8GgNlG2aLd4R18D80F124e_0.png" } },
+      { rank: 3, tag: "#LB_CLAN3", name: "Queso Esports", clanLevel: 20, clanPoints: 58900, badgeUrls: { small: "https://api-assets.clashofclans.com/badges/70/4n907wz4IqgW-JpA6tWnUq8pU08VzFq0832J4mD5d_0.png" } },
+      { rank: 4, tag: "#LB_CLAN4", name: "Chiba Clan", clanLevel: 23, clanPoints: 57400, badgeUrls: { small: "https://api-assets.clashofclans.com/badges/70/u32qC3wKj2Vex8Tz75j8GgNlG2aLd4R18D80F124e_0.png" } },
+      { rank: 5, tag: "#LB_CLAN5", name: "Space Station", clanLevel: 19, clanPoints: 56900, badgeUrls: { small: "https://api-assets.clashofclans.com/badges/70/4n907wz4IqgW-JpA6tWnUq8pU08VzFq0832J4mD5d_0.png" } }
+    ],
+    32000254: [
+      { rank: 1, tag: "#8U2RYV0Y", name: "Dark Elixir", clanLevel: 18, clanPoints: 52100, badgeUrls: { small: "https://api-assets.clashofclans.com/badges/70/u32qC3wKj2Vex8Tz75j8GgNlG2aLd4R18D80F124e_0.png" } },
+      { rank: 2, tag: "#LB_US2", name: "USA Warriors", clanLevel: 17, clanPoints: 49800, badgeUrls: { small: "https://api-assets.clashofclans.com/badges/70/4n907wz4IqgW-JpA6tWnUq8pU08VzFq0832J4mD5d_0.png" } },
+      { rank: 3, tag: "#LB_US3", name: "Texas Outlaws", clanLevel: 19, clanPoints: 48500, badgeUrls: { small: "https://api-assets.clashofclans.com/badges/70/u32qC3wKj2Vex8Tz75j8GgNlG2aLd4R18D80F124e_0.png" } }
+    ]
+  },
+  players: {
+    32000006: [
+      { rank: 1, tag: "#Y2CU0P8P", name: "ClashMaster", expLevel: 245, trophies: 6350, clan: { name: "Nova Esports" }, league: { iconUrls: { small: "https://api-assets.clashofclans.com/leagues/72/R2zmhyXTmgu1qTvSO1IyidxOkPkec4GgQbua3gip-Oo.png" } } },
+      { rank: 2, tag: "#LB_PL2", name: "Klaus", expLevel: 238, trophies: 6290, clan: { name: "Tribe Gaming" }, league: { iconUrls: { small: "https://api-assets.clashofclans.com/leagues/72/R2zmhyXTmgu1qTvSO1IyidxOkPkec4GgQbua3gip-Oo.png" } } },
+      { rank: 3, tag: "#LB_PL3", name: "Synthe", expLevel: 230, trophies: 6245, clan: { name: "Queso Esports" }, league: { iconUrls: { small: "https://api-assets.clashofclans.com/leagues/72/R2zmhyXTmgu1qTvSO1IyidxOkPkec4GgQbua3gip-Oo.png" } } },
+      { rank: 4, tag: "#LB_PL4", name: "Gaku", expLevel: 240, trophies: 6190, clan: { name: "Chiba Clan" }, league: { iconUrls: { small: "https://api-assets.clashofclans.com/leagues/72/R2zmhyXTmgu1qTvSO1IyidxOkPkec4GgQbua3gip-Oo.png" } } }
+    ],
+    32000254: [
+      { rank: 1, tag: "#LB_USPL1", name: "US_Patriot", expLevel: 210, trophies: 5900, clan: { name: "Dark Elixir" }, league: { iconUrls: { small: "https://api-assets.clashofclans.com/leagues/72/R2zmhyXTmgu1qTvSO1IyidxOkPkec4GgQbua3gip-Oo.png" } } },
+      { rank: 2, tag: "#LB_USPL2", name: "CowboyClasher", expLevel: 198, trophies: 5750, clan: { name: "Texas Outlaws" }, league: { iconUrls: { small: "https://api-assets.clashofclans.com/leagues/72/R2zmhyXTmgu1qTvSO1IyidxOkPkec4GgQbua3gip-Oo.png" } } }
+    ]
+  }
+};
+
+const MOCK_WAR_LOG = {
+  "#2PP2PP2P": {
+    items: [
+      { result: "win", opponent: { tag: "#OPP1", name: "War Machine", clanLevel: 20, badgeUrls: { small: "https://api-assets.clashofclans.com/badges/70/u32qC3wKj2Vex8Tz75j8GgNlG2aLd4R18D80F124e_0.png" } }, clan: { stars: 45, destructionPercentage: 100 }, opponentResult: { stars: 41, destructionPercentage: 92.5 }, endTime: "2026-05-25T14:00:00Z" },
+      { result: "win", opponent: { tag: "#OPP2", name: "Red Dragons", clanLevel: 19, badgeUrls: { small: "https://api-assets.clashofclans.com/badges/70/4n907wz4IqgW-JpA6tWnUq8pU08VzFq0832J4mD5d_0.png" } }, clan: { stars: 43, destructionPercentage: 98.2 }, opponentResult: { stars: 43, destructionPercentage: 96.5 }, endTime: "2026-05-23T16:30:00Z" },
+      { result: "lose", opponent: { tag: "#OPP3", name: "Spartans", clanLevel: 25, badgeUrls: { small: "https://api-assets.clashofclans.com/badges/70/u32qC3wKj2Vex8Tz75j8GgNlG2aLd4R18D80F124e_0.png" } }, clan: { stars: 40, destructionPercentage: 91.4 }, opponentResult: { stars: 42, destructionPercentage: 95.0 }, endTime: "2026-05-21T18:00:00Z" },
+      { result: "win", opponent: { tag: "#OPP4", name: "Eternal Flame", clanLevel: 21, badgeUrls: { small: "https://api-assets.clashofclans.com/badges/70/4n907wz4IqgW-JpA6tWnUq8pU08VzFq0832J4mD5d_0.png" } }, clan: { stars: 45, destructionPercentage: 100 }, opponentResult: { stars: 38, destructionPercentage: 86.8 }, endTime: "2026-05-19T20:00:00Z" }
+    ]
+  }
+};
+
+const MOCK_CAPITAL_RAIDS = {
+  "#2PP2PP2P": {
+    items: [
+      {
+        state: "ended",
+        startDate: "2026-05-22T07:00:00Z",
+        endDate: "2026-05-25T07:00:00Z",
+        totalLoot: 145200,
+        completedRaids: 18,
+        attackCount: 108,
+        members: [
+          { name: "ClashMaster", attacks: 6, capitalResourcesLooted: 24500 },
+          { name: "ElixirQueen", attacks: 6, capitalResourcesLooted: 22800 },
+          { name: "DarkKnight", attacks: 6, capitalResourcesLooted: 21000 }
+        ]
+      },
+      {
+        state: "ended",
+        startDate: "2026-05-15T07:00:00Z",
+        endDate: "2026-05-18T07:00:00Z",
+        totalLoot: 138600,
+        completedRaids: 17,
+        attackCount: 102,
+        members: [
+          { name: "ClashMaster", attacks: 6, capitalResourcesLooted: 21000 }
+        ]
+      }
+    ]
+  }
+};
+
+const MOCK_GOLD_PASS = {
+  startTime: "2026-05-01T00:00:00Z",
+  endTime: "2026-06-01T00:00:00Z",
+  rewards: [
+    { type: "skin", name: "Goblin Queen Skin", points: 2600 },
+    { type: "book", name: "Book of Everything", points: 2000 },
+    { type: "rune", name: "Rune of Gold", points: 1600 }
+  ]
+};
+
+const MOCK_LABELS = {
+  clans: [
+    { id: 56000000, name: "Clan Wars", iconUrls: { small: "https://api-assets.clashofclans.com/labels/64/lXaocg2Pt1_C2y1ZyZBNcoLxrOC5697YodO2od7NZUs.png" } },
+    { id: 56000001, name: "Clan Games", iconUrls: { small: "https://api-assets.clashofclans.com/labels/64/up340Z5v5z6Fe0cl3zb9zS48eXG4u1G5Zq-Op_7OoE.png" } },
+    { id: 56000002, name: "Active Donator", iconUrls: { small: "https://api-assets.clashofclans.com/labels/64/9oZex8Tz75j8GgNlG2aLd4R18D80F124e_0.png" } }
+  ],
+  players: [
+    { id: 57000000, name: "Farming", iconUrls: { small: "https://api-assets.clashofclans.com/labels/64/9oZex8Tz75j8GgNlG2aLd4R18D80F124e_0.png" } },
+    { id: 57000001, name: "Base Designing", iconUrls: { small: "https://api-assets.clashofclans.com/labels/64/up340Z5v5z6Fe0cl3zb9zS48eXG4u1G5Zq-Op_7OoE.png" } },
+    { id: 57000002, name: "Trophy Pushing", iconUrls: { small: "https://api-assets.clashofclans.com/labels/64/lXaocg2Pt1_C2y1ZyZBNcoLxrOC5697YodO2od7NZUs.png" } }
+  ]
+};
+
+// Seed labels to existing mock profiles for maximum integration depth
+MOCK_CLANS["#2PP2PP2P"].labels = [MOCK_LABELS.clans[0], MOCK_LABELS.clans[1], MOCK_LABELS.clans[2]];
+MOCK_CLANS["#8U2RYV0Y"].labels = [MOCK_LABELS.clans[0], MOCK_LABELS.clans[1]];
+MOCK_PLAYERS["#Y2CU0P8P"].labels = [MOCK_LABELS.players[1], MOCK_LABELS.players[2]];
+MOCK_PLAYERS["#Q2R8Y9LL"].labels = [MOCK_LABELS.players[0]];
+
 window.MOCK_CLANS = MOCK_CLANS;
 window.MOCK_PLAYERS = MOCK_PLAYERS;
 window.MOCK_WARS = MOCK_WARS;
+window.MOCK_CWL = MOCK_CWL;
+window.MOCK_LEADERBOARDS = MOCK_LEADERBOARDS;
+window.MOCK_WAR_LOG = MOCK_WAR_LOG;
+window.MOCK_CAPITAL_RAIDS = MOCK_CAPITAL_RAIDS;
+window.MOCK_GOLD_PASS = MOCK_GOLD_PASS;
+window.MOCK_LABELS = MOCK_LABELS;
+

@@ -344,6 +344,8 @@ function initApp() {
       case '3': switchTab('player'); break;
       case '4': switchTab('war'); break;
       case '5': switchTab('compare'); break;
+      case '6': switchTab('leaderboards'); break;
+      case '7': switchTab('capital'); break;
       case '/':
         e.preventDefault();
         const activePane = document.querySelector('.view-pane.active');
@@ -352,6 +354,11 @@ function initApp() {
         break;
     }
   });
+
+  // Initialize new premium features
+  setupWarHubSubnav();
+  initLeaderboardsView();
+  setupCapitalSearchForm();
 
   // Initialize page components
   showInitialPlaceholders();
@@ -634,6 +641,23 @@ async function fetchCocData(endpoint) {
     // Add dynamic network delay for that premium high-fidelity interface feel
     await new Promise(resolve => setTimeout(resolve, 600));
 
+    // Handle Gold Pass
+    if (endpoint.startsWith('/goldpass/')) {
+      return JSON.parse(JSON.stringify(window.MOCK_GOLD_PASS));
+    }
+
+    // Handle Locations & rankings
+    if (endpoint.startsWith('/locations')) {
+      const parts = endpoint.split('/');
+      if (parts.length === 2) {
+        return { items: JSON.parse(JSON.stringify(window.MOCK_LEADERBOARDS.locations)) };
+      }
+      const locId = parts[2];
+      const type = parts[4]; // e.g. "clans" or "players"
+      const data = window.MOCK_LEADERBOARDS[type]?.[locId] || window.MOCK_LEADERBOARDS[type]?.[32000006] || [];
+      return { items: JSON.parse(JSON.stringify(data)) };
+    }
+
     // Handle Clan & CurrentWar routing
     if (endpoint.startsWith('/clans/')) {
       const parts = endpoint.split('/');
@@ -646,6 +670,30 @@ async function fetchCocData(endpoint) {
         }
         // Fallback default war log
         return JSON.parse(JSON.stringify(Object.values(window.MOCK_WARS)[0]));
+      }
+
+      // If requesting war league group (CWL)
+      if (parts[3] === 'warleague' && parts[4] === 'group') {
+        if (window.MOCK_CWL && window.MOCK_CWL[tag]) {
+          return JSON.parse(JSON.stringify(window.MOCK_CWL[tag]));
+        }
+        return JSON.parse(JSON.stringify(Object.values(window.MOCK_CWL)[0]));
+      }
+
+      // If requesting war logs
+      if (parts[3] === 'warlog') {
+        if (window.MOCK_WAR_LOG && window.MOCK_WAR_LOG[tag]) {
+          return JSON.parse(JSON.stringify(window.MOCK_WAR_LOG[tag]));
+        }
+        return JSON.parse(JSON.stringify(Object.values(window.MOCK_WAR_LOG)[0]));
+      }
+
+      // If requesting capital raids log
+      if (parts[3] === 'capitalraidlog') {
+        if (window.MOCK_CAPITAL_RAIDS && window.MOCK_CAPITAL_RAIDS[tag]) {
+          return JSON.parse(JSON.stringify(window.MOCK_CAPITAL_RAIDS[tag]));
+        }
+        return JSON.parse(JSON.stringify(Object.values(window.MOCK_CAPITAL_RAIDS)[0]));
       }
       
       // Requesting clan itself
@@ -753,6 +801,9 @@ async function loadWarData(clanTag) {
   const container = document.getElementById('war-results-container');
   container.innerHTML = getSkeletonHTML();
   
+  // Hide subnav and subviews initially
+  document.getElementById('war-hub-subnav').style.display = 'none';
+  
   try {
     const war = await fetchCocData(`/clans/${clanTag}/currentwar`);
     if (!war || war.state === 'notInWar') {
@@ -761,6 +812,11 @@ async function loadWarData(clanTag) {
     }
     state.currentWar = war;
     renderWar(war);
+    
+    // Show subnavigation and trigger loading other subviews
+    document.getElementById('war-hub-subnav').style.display = 'flex';
+    loadCWLData(clanTag);
+    loadWarHistoryData(clanTag);
   } catch (err) {
     container.innerHTML = `<div class="placeholder-state"><i class="fas fa-times-circle"></i><p>Error loading war log: ${escapeHtml(err.message)}</p><button class="primary-btn mt-16" onclick="loadWarData('${escapeHtml(clanTag)}')">Retry</button></div>`;
   }
@@ -881,6 +937,18 @@ async function loadOverviewClan(tag) {
             </div>
           </div>
         </div>
+
+        <!-- Playstyle recruitment labels -->
+        ${clan.labels && clan.labels.length > 0 ? `
+          <div class="label-badge-container" style="margin-top: 16px; display: flex; gap: 8px; flex-wrap: wrap;">
+            ${clan.labels.map(l => `
+              <span class="label-badge">
+                <img src="${l.iconUrls.small}" alt="${l.name}"/>
+                ${escapeHtml(l.name)}
+              </span>
+            `).join('')}
+          </div>
+        ` : ''}
       </div>
 
       <!-- Overview Analytics Card -->
@@ -901,6 +969,9 @@ async function loadOverviewClan(tag) {
     // Render league band graph
     await loadChartJs();
     initOverviewChart(clan);
+    
+    // Load Battle pass season details
+    loadGoldPassData();
   } catch (err) {
     overviewContainer.innerHTML = `
       <div class="results-card" style="grid-column: span 2; min-height: auto; align-items: center; justify-content: center; padding: 40px; text-align: center;">
@@ -1122,6 +1193,16 @@ function renderClan(clan) {
     <div>
       <h3>Description</h3>
       <p style="color: var(--text-muted); line-height: 1.6; margin-top: 8px;">${escapeHtml(clan.description || 'No description provided.')}</p>
+      ${clan.labels && clan.labels.length > 0 ? `
+        <div style="margin-top: 12px; display: flex; gap: 8px; flex-wrap: wrap;">
+          ${clan.labels.map(l => `
+            <span class="label-badge">
+              <img src="${l.iconUrls.small}" alt="${l.name}"/>
+              ${escapeHtml(l.name)}
+            </span>
+          `).join('')}
+        </div>
+      ` : ''}
     </div>
 
     ${capitalHtml}
@@ -1363,6 +1444,16 @@ function renderPlayer(player) {
           </div>
         </h2>
         <p>${escapeHtml(player.tag)} &bull; Exp Lvl ${player.expLevel} &bull; ${player.role ? escapeHtml(player.role.replace(/([A-Z])/g, ' $1')) : 'Independent'}</p>
+        ${player.labels && player.labels.length > 0 ? `
+          <div style="margin-top: 12px; display: flex; gap: 8px; flex-wrap: wrap;">
+            ${player.labels.map(l => `
+              <span class="label-badge">
+                <img src="${l.iconUrls.small}" alt="${l.name}"/>
+                ${escapeHtml(l.name)}
+              </span>
+            `).join('')}
+          </div>
+        ` : ''}
       </div>
     </div>
 
@@ -1758,3 +1849,470 @@ async function initComparisonChart(a, b) {
     }
   });
 }
+
+// ===== EXTENSIONS & NEW TAB RENDERERS =====
+
+// 1. Gold Pass Tracker
+async function loadGoldPassData() {
+  const container = document.getElementById('goldpass-widget-container');
+  if (!container) return;
+  
+  container.innerHTML = `<div class="skeleton skeleton-card" style="height: 120px;"></div>`;
+  
+  try {
+    const goldpass = await fetchCocData('/goldpass/seasons/current');
+    if (!goldpass) {
+      container.innerHTML = `<p class="text-muted">Gold Pass data currently unavailable.</p>`;
+      return;
+    }
+    
+    const startTime = new Date(goldpass.startTime).getTime();
+    const endTime = new Date(goldpass.endTime).getTime();
+    const now = Date.now();
+    
+    const totalDuration = endTime - startTime;
+    const elapsed = now - startTime;
+    const progressPercent = Math.min(100, Math.max(0, (elapsed / totalDuration) * 100));
+    
+    const daysLeft = Math.ceil(Math.max(0, endTime - now) / (1000 * 60 * 60 * 24));
+    
+    container.innerHTML = `
+      <div class="gold-pass-container">
+        <div class="gold-pass-header">
+          <div>
+            <h3 class="gold-gradient-text" style="font-size: 18px; font-weight: 800; display: flex; align-items: center; gap: 8px; margin: 0;">
+              <i class="fas fa-ticket-alt"></i> Gold Pass Season
+            </h3>
+            <span style="font-size: 11px; color: var(--text-muted);">Active Battle Pass tracking metrics</span>
+          </div>
+          <span class="badge-small" style="background: rgba(245, 166, 35, 0.15); color: var(--clash-gold); font-size: 11px; font-weight: 800; border-radius: 6px; padding: 4px 8px;">
+            ${daysLeft} DAYS REMAINING
+          </span>
+        </div>
+        
+        <div style="display: flex; flex-direction: column; gap: 6px; margin-top: 8px;">
+          <div class="flex-between" style="display: flex; justify-content: space-between;">
+            <span style="font-size: 12px; color: var(--text-muted);">Season Progress</span>
+            <span style="font-size: 12px; font-weight: 700; color: var(--clash-gold);">${Math.floor(progressPercent)}% completed</span>
+          </div>
+          <div class="gold-pass-progress-wrapper">
+            <div class="gold-pass-progress-bar" style="width: ${progressPercent}%;"></div>
+          </div>
+        </div>
+
+        <div style="margin-top: 16px;">
+          <h4 style="font-size: 12px; font-weight: 700; margin-bottom: 8px; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.5px;">Season Highlights</h4>
+          <div class="goldpass-rewards-list">
+            ${(goldpass.rewards || []).map(r => `
+              <div class="goldpass-reward-card">
+                <div style="font-size: 20px;">${r.type === 'skin' ? '👑' : r.type === 'book' ? '📘' : '🪙'}</div>
+                <div class="flex-col">
+                  <span style="font-size: 12px; font-weight: 700; color: var(--text-main);">${escapeHtml(r.name)}</span>
+                  <span style="font-size: 10px; color: var(--text-muted);">${r.points} pts required</span>
+                </div>
+              </div>
+            `).join('')}
+          </div>
+        </div>
+      </div>
+    `;
+  } catch (err) {
+    container.innerHTML = `<p class="text-muted">Error loading Gold Pass: ${escapeHtml(err.message)}</p>`;
+  }
+}
+
+// 2. War Hub subnav controller
+function setupWarHubSubnav() {
+  const subnav = document.getElementById('war-hub-subnav');
+  if (!subnav) return;
+  
+  subnav.querySelectorAll('.sub-nav-btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+      // Toggle active tab classes
+      subnav.querySelectorAll('.sub-nav-btn').forEach(b => b.classList.remove('active'));
+      btn.classList.add('active');
+      
+      // Toggle active subviews
+      const targetSubtab = btn.getAttribute('data-subtab');
+      document.querySelectorAll('.war-subview').forEach(view => {
+        view.style.display = view.id === `war-subview-${targetSubtab}` ? 'flex' : 'none';
+      });
+    });
+  });
+}
+
+// 3. CWL standings loader & renderer
+async function loadCWLData(clanTag) {
+  const container = document.getElementById('cwl-results-container');
+  if (!container) return;
+  
+  container.innerHTML = getSkeletonHTML();
+  
+  try {
+    const cwl = await fetchCocData(`/clans/${clanTag}/warleague/group`);
+    if (!cwl || cwl.state === 'notInWar') {
+      container.innerHTML = `
+        <div class="placeholder-state" style="padding: 40px;">
+          <i class="fas fa-trophy" style="font-size: 48px; color: var(--text-muted); margin-bottom: 12px;"></i>
+          <p>This clan is currently not participating in Clan War Leagues.</p>
+        </div>
+      `;
+      return;
+    }
+    
+    container.innerHTML = `
+      <div style="display: flex; flex-direction: column; gap: 16px;">
+        <div style="border-bottom: 1px solid var(--border-subtle); padding-bottom: 12px;">
+          <h3 class="gold-gradient-text" style="font-size: 20px; font-weight: 800; margin: 0;">🛡️ Clan War League Standings</h3>
+          <span style="font-size: 12px; color: var(--text-muted);">Season: ${cwl.season} &bull; League Tier: Champion I</span>
+        </div>
+        
+        <table class="leaderboard-table">
+          <thead>
+            <tr>
+              <th>Rank</th>
+              <th>Clan Name</th>
+              <th>Clan Level</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${cwl.clans.map((c, index) => `
+              <tr style="${c.tag === clanTag ? 'background: rgba(245,166,35,0.05); font-weight: 700;' : ''}">
+                <td><span class="rank-badge ${index < 3 ? `rank-${index + 1}` : ''}">${index + 1}</span></td>
+                <td>
+                  <div style="display: flex; align-items: center; gap: 10px;">
+                    <img src="${c.badgeUrls.small}" alt="badge" style="width: 24px; height: 24px; object-fit: contain;"/>
+                    <span style="color: var(--text-main); cursor: pointer;" onclick="quickLoadBookmark('clan', '${escapeHtml(c.tag)}')">${escapeHtml(c.name)}</span>
+                    ${c.tag === clanTag ? '<span class="badge-small" style="background: rgba(245,166,35,0.15); color: var(--clash-gold); font-size: 10px; margin-left: 8px;">HOME</span>' : ''}
+                  </div>
+                </td>
+                <td style="color: var(--text-muted);">Level ${c.clanLevel}</td>
+              </tr>
+            `).join('')}
+          </tbody>
+        </table>
+        
+        <div style="margin-top: 16px;">
+          <h4 style="font-size: 13px; font-weight: 700; color: var(--text-muted); text-transform: uppercase;">CWL Tournament Rounds</h4>
+          <div style="display: flex; gap: 12px; flex-wrap: wrap; margin-top: 8px;">
+            ${cwl.rounds.map((round, rIndex) => `
+              <div class="card-item" style="flex: 1; min-width: 140px; padding: 12px; text-align: center;">
+                <strong style="color: var(--text-main); font-size: 13px;">Round ${rIndex + 1}</strong><br/>
+                <small style="color: var(--text-muted);">${round.warTags.length} active match-ups</small>
+              </div>
+            `).join('')}
+          </div>
+        </div>
+      </div>
+    `;
+  } catch (err) {
+    container.innerHTML = `
+      <div class="placeholder-state" style="padding: 40px;">
+        <i class="fas fa-exclamation-triangle" style="font-size: 36px; color: var(--clash-elixir); margin-bottom: 12px;"></i>
+        <p>Could not load Clan War Leagues: ${escapeHtml(err.message)}</p>
+      </div>
+    `;
+  }
+}
+
+// 4. War History (War Logs)
+async function loadWarHistoryData(clanTag) {
+  const container = document.getElementById('war-history-results-container');
+  if (!container) return;
+  
+  container.innerHTML = getSkeletonHTML();
+  
+  try {
+    const logs = await fetchCocData(`/clans/${clanTag}/warlog`);
+    if (!logs || !logs.items || logs.items.length === 0) {
+      container.innerHTML = `
+        <div class="placeholder-state" style="padding: 40px;">
+          <i class="fas fa-folder-open" style="font-size: 48px; color: var(--text-muted); margin-bottom: 12px;"></i>
+          <p>This clan's war log is private or has no records.</p>
+        </div>
+      `;
+      return;
+    }
+    
+    container.innerHTML = `
+      <div style="display: flex; flex-direction: column; gap: 16px;">
+        <div style="border-bottom: 1px solid var(--border-subtle); padding-bottom: 12px;">
+          <h3 class="gold-gradient-text" style="font-size: 20px; font-weight: 800; margin: 0;">📜 War Log History</h3>
+          <span style="font-size: 12px; color: var(--text-muted);">Archived performance metrics for past combat campaigns</span>
+        </div>
+        
+        <div class="war-log-list">
+          ${logs.items.map(log => {
+            const isWin = log.result === 'win';
+            return `
+              <div class="war-log-item ${isWin ? 'win' : 'lose'}">
+                <div style="display: flex; align-items: center; gap: 16px;">
+                  <img src="${log.opponent.badgeUrls.small}" alt="badge" style="width: 36px; height: 36px; object-fit: contain;"/>
+                  <div>
+                    <strong style="color: var(--text-main); font-size: 14px;">vs. ${escapeHtml(log.opponent.name)}</strong><br/>
+                    <small style="color: var(--text-muted);">Opponent Level: ${log.opponent.clanLevel} &bull; End: ${new Date(log.endTime).toLocaleDateString()}</small>
+                  </div>
+                </div>
+                
+                <div style="display: flex; align-items: center; gap: 24px; text-align: right;">
+                  <div>
+                    <span style="font-size: 15px; font-weight: 800; color: var(--clash-gold);">⭐ ${log.clan.stars}</span>
+                    <span style="color: var(--text-muted); font-size: 12px;"> vs ${log.opponentResult.stars}</span><br/>
+                    <small style="color: var(--text-muted); font-size: 11px;">Destruction: ${log.clan.destructionPercentage}%</small>
+                  </div>
+                  <span class="war-log-badge-result">${log.result}</span>
+                </div>
+              </div>
+            `;
+          }).join('')}
+        </div>
+      </div>
+    `;
+  } catch (err) {
+    container.innerHTML = `
+      <div class="placeholder-state" style="padding: 40px;">
+        <i class="fas fa-exclamation-triangle" style="font-size: 36px; color: var(--clash-elixir); margin-bottom: 12px;"></i>
+        <p>Could not load War Log history: ${escapeHtml(err.message)}</p>
+      </div>
+    `;
+  }
+}
+
+// 5. Leaderboard View initialization
+function initLeaderboardsView() {
+  const typeSelect = document.getElementById('leaderboard-type');
+  const locSelect = document.getElementById('leaderboard-location');
+  const fetchBtn = document.getElementById('fetch-leaderboard-btn');
+  
+  if (!typeSelect || !locSelect || !fetchBtn) return;
+  
+  loadLeaderboardLocations();
+  
+  fetchBtn.addEventListener('click', () => {
+    const type = typeSelect.value;
+    const locId = locSelect.value;
+    fetchLeaderboardRankings(type, locId);
+  });
+}
+
+// 6. Populate regions / locations
+async function loadLeaderboardLocations() {
+  const select = document.getElementById('leaderboard-location');
+  if (!select) return;
+  
+  try {
+    const locs = await fetchCocData('/locations');
+    if (locs && locs.items) {
+      // Sort locations: place International (32000006) and US (32000254) at the top of the list!
+      const prioritized = [];
+      const others = [];
+      
+      locs.items.forEach(l => {
+        if (l.id === 32000006 || l.id === 32000254) {
+          prioritized.push(l);
+        } else {
+          others.push(l);
+        }
+      });
+      
+      // Sort prioritized so International is first
+      prioritized.sort((a, b) => a.id === 32000006 ? -1 : 1);
+      
+      const finalLocs = [...prioritized, ...others];
+      
+      select.innerHTML = finalLocs.map(l => `
+        <option value="${l.id}" ${l.id === 32000006 ? 'selected' : ''}>${escapeHtml(l.name)} (${l.isCountry ? 'Country' : 'Global'})</option>
+      `).join('');
+      
+      // Load International rankings initially as it is guaranteed to exist
+      fetchLeaderboardRankings('clans', 32000006);
+    }
+  } catch (err) {
+    select.innerHTML = `<option value="32000006" selected>International (Global)</option>`;
+    fetchLeaderboardRankings('clans', 32000006);
+  }
+}
+
+// 7. Load Leaderboard rankings
+async function fetchLeaderboardRankings(type, locationId) {
+  const container = document.getElementById('leaderboards-results-container');
+  if (!container) return;
+  
+  container.innerHTML = getSkeletonHTML();
+  
+  try {
+    const data = await fetchCocData(`/locations/${locationId}/rankings/${type}`);
+    if (!data || !data.items || data.items.length === 0) {
+      container.innerHTML = `
+        <div class="placeholder-state" style="padding: 40px;">
+          <i class="fas fa-history" style="font-size: 48px; color: var(--text-muted); margin-bottom: 12px;"></i>
+          <p>No leaderboard records found for this location.</p>
+        </div>
+      `;
+      return;
+    }
+    
+    const isClans = type === 'clans';
+    container.innerHTML = `
+      <div style="display: flex; flex-direction: column; gap: 16px;">
+        <div style="border-bottom: 1px solid var(--border-subtle); padding-bottom: 12px;">
+          <h3 class="gold-gradient-text" style="font-size: 20px; font-weight: 800; margin: 0;">🌎 Top Rankings (${isClans ? 'Clans' : 'Players'})</h3>
+          <span style="font-size: 12px; color: var(--text-muted);">Real-time leaderboards by competitive standing</span>
+        </div>
+        
+        <table class="leaderboard-table">
+          <thead>
+            <tr>
+              <th>Rank</th>
+              <th>Name</th>
+              <th>${isClans ? 'Points / Trophies' : 'Trophies'}</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${data.items.map((item, index) => `
+              <tr>
+                <td><span class="rank-badge ${index < 3 ? `rank-${index + 1}` : ''}">${item.rank || index + 1}</span></td>
+                <td>
+                  <div style="display: flex; align-items: center; gap: 10px;">
+                    ${item.badgeUrls ? `<img src="${item.badgeUrls.small}" alt="badge" style="width: 24px; height: 24px; object-fit: contain;"/>` : ''}
+                    ${item.league && item.league.iconUrls ? `<img src="${item.league.iconUrls.small}" alt="league" style="width: 20px; height: 20px; object-fit: contain;"/>` : ''}
+                    <div>
+                      <strong style="color: var(--text-main); cursor: pointer;" onclick="quickLoadBookmark('${isClans ? 'clan' : 'player'}', '${escapeHtml(item.tag)}')">${escapeHtml(item.name)}</strong>
+                      <span class="inspect-badge" onclick="quickLoadBookmark('${isClans ? 'clan' : 'player'}', '${escapeHtml(item.tag)}')" style="margin-left: 8px;">Inspect</span><br/>
+                      <small style="color: var(--text-muted); font-size: 11px;">${item.clan ? `Clan: ${escapeHtml(item.clan.name)}` : `Level ${item.clanLevel || item.expLevel}`}</small>
+                    </div>
+                  </div>
+                </td>
+                <td><strong style="color: var(--clash-gold);"><i class="fas fa-trophy"></i> ${(item.clanPoints || item.trophies).toLocaleString()}</strong></td>
+              </tr>
+            `).join('')}
+          </tbody>
+        </table>
+      </div>
+    `;
+  } catch (err) {
+    container.innerHTML = `
+      <div class="placeholder-state" style="padding: 40px;">
+        <i class="fas fa-exclamation-triangle" style="font-size: 36px; color: var(--clash-elixir); margin-bottom: 12px;"></i>
+        <p>Could not fetch Leaderboards: ${escapeHtml(err.message)}</p>
+      </div>
+    `;
+  }
+}
+
+// 8. Capital Lookup form
+function setupCapitalSearchForm() {
+  const form = document.getElementById('capital-search-form');
+  if (!form) return;
+  
+  form.addEventListener('submit', (e) => {
+    e.preventDefault();
+    const tag = document.getElementById('capital-clan-tag-input').value.trim().toUpperCase();
+    loadCapitalRaids(tag);
+  });
+  
+  // Set default capital lookups inside placeholders
+  document.getElementById('capital-results-container').innerHTML = `
+    <div class="placeholder-state">
+      <i class="fas fa-fort-awesome" style="font-size: 48px; color: var(--clash-gold); opacity: 0.6; margin-bottom: 12px;"></i>
+      <p style="font-size: 15px; color: var(--text-muted);">Enter a Clan Tag on the left to inspect Capital Hall layout & Raids.</p>
+    </div>
+  `;
+}
+
+// 9. Load Capital Districts and Raids
+async function loadCapitalRaids(clanTag) {
+  const container = document.getElementById('capital-results-container');
+  if (!container) return;
+  
+  container.innerHTML = getSkeletonHTML();
+  
+  try {
+    const clan = await fetchCocData(`/clans/${clanTag}`);
+    const raids = await fetchCocData(`/clans/${clanTag}/capitalraidlog`);
+    
+    if (!clan || !clan.clanCapital) {
+      container.innerHTML = `
+        <div class="placeholder-state" style="padding: 40px;">
+          <i class="fas fa-fort-awesome" style="font-size: 48px; color: var(--text-muted); margin-bottom: 12px;"></i>
+          <p>Capital details are not available for this clan.</p>
+        </div>
+      `;
+      return;
+    }
+    
+    // Capital Districts rendering
+    const districtsHtml = `
+      <div style="margin-top: 16px;">
+        <h4 style="font-size: 13px; font-weight: 700; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.5px;">District Hal Level Layouts</h4>
+        <div class="district-grid">
+          ${(clan.clanCapital.districts || []).map(dist => `
+            <div class="district-card">
+              <span style="font-size: 14px; font-weight: 700; color: var(--text-main);">${escapeHtml(dist.name)}</span>
+              <span class="level-tag" style="background: var(--clash-dark-elixir-gradient); color: #fff; width: max-content; font-size: 10px;">LVL ${dist.districtHallLevel}</span>
+            </div>
+          `).join('')}
+        </div>
+      </div>
+    `;
+    
+    // Raid History rendering
+    let raidsHtml = `
+      <div style="margin-top: 24px; border-top: 1px solid var(--border-subtle); padding-top: 24px;">
+        <h4 style="font-size: 13px; font-weight: 700; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.5px;">Raid Weekend Performance</h4>
+      </div>
+    `;
+    
+    if (raids && raids.items && raids.items.length > 0) {
+      raidsHtml += `
+        <div class="war-log-list" style="margin-top: 12px;">
+          ${raids.items.map(log => `
+            <div class="war-log-item" style="border-left: 4px solid var(--clash-gold);">
+              <div style="display: flex; flex-direction: column; gap: 4px;">
+                <strong style="color: var(--text-main); font-size: 14px;">Weekend Raid Event</strong>
+                <small style="color: var(--text-muted);">Completed: ${new Date(log.startDate).toLocaleDateString()} - ${new Date(log.endDate).toLocaleDateString()}</small>
+              </div>
+              
+              <div style="display: flex; gap: 32px; text-align: right;">
+                <div>
+                  <span style="font-weight: 800; color: var(--clash-gold); font-size: 15px;">🪙 ${log.totalLoot.toLocaleString()}</span><br/>
+                  <small style="color: var(--text-muted); font-size: 11px;">Resources Gathered</small>
+                </div>
+                <div>
+                  <span style="font-weight: 700; color: var(--text-main); font-size: 15px;">⚔️ ${log.attackCount}</span><br/>
+                  <small style="color: var(--text-muted); font-size: 11px;">Attacks conducted</small>
+                </div>
+              </div>
+            </div>
+          `).join('')}
+        </div>
+      </div>
+      `;
+    } else {
+      raidsHtml += `<p class="text-muted" style="font-size: 13px; margin-top: 12px;">No historical Raid Weekend logs are available.</p>`;
+    }
+    
+    container.innerHTML = `
+      <div style="display: flex; flex-direction: column; gap: 16px;">
+        <div style="display: flex; align-items: center; gap: 16px; border-bottom: 1px solid var(--border-subtle); padding-bottom: 16px;">
+          <img src="${clan.badgeUrls.small}" alt="badge" style="width: 40px; height: 40px; object-fit: contain;"/>
+          <div>
+            <h3 class="gold-gradient-text" style="font-size: 20px; font-weight: 800; margin: 0;">🏰 Clan Capital command center</h3>
+            <span style="font-size: 12px; color: var(--text-muted);">${escapeHtml(clan.name)} &bull; Hall Level: ${clan.clanCapital.capitalHallLevel}</span>
+          </div>
+        </div>
+        
+        ${districtsHtml}
+        ${raidsHtml}
+      </div>
+    `;
+  } catch (err) {
+    container.innerHTML = `
+      <div class="placeholder-state" style="padding: 40px;">
+        <i class="fas fa-exclamation-triangle" style="font-size: 36px; color: var(--clash-elixir); margin-bottom: 12px;"></i>
+        <p>Could not load Capital: ${escapeHtml(err.message)}</p>
+      </div>
+    `;
+  }
+}
+
