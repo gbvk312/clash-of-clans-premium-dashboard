@@ -1,0 +1,302 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="description" content="Premium Clash of Clans dashboard with real-time clan stats, player profiles, war tracking, and clan comparison tools.">
+  <title>Clash of Clans Premium API Dashboard</title>
+  <link rel="stylesheet" href="style.css">
+  <!-- Font Awesome Icons for beautiful gaming styling -->
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+</head>
+<body>
+
+  <div class="toast-container" id="toast-container"></div>
+
+  <button class="hamburger-btn" id="hamburger-btn" aria-label="Toggle navigation menu">
+    <i class="fas fa-bars"></i>
+  </button>
+  <div class="sidebar-overlay" id="sidebar-overlay"></div>
+
+  <!-- Sidebar Navigation -->
+  <aside>
+    <div class="logo-container">
+      <div class="logo-icon">
+        <i>⚔️</i>
+      </div>
+      <div class="logo-text">CLASH BOARD</div>
+    </div>
+    
+    <ul class="nav-links" role="tablist" aria-label="Dashboard navigation">
+      <li class="nav-item active" data-tab="overview" role="tab" tabindex="0" aria-selected="true" aria-controls="overview-pane">
+        <i class="fas fa-chart-line"></i>
+        <span>Overview</span>
+        <span class="kbd-hint">1</span>
+      </li>
+      <li class="nav-item" data-tab="clan" role="tab" tabindex="0" aria-selected="false" aria-controls="clan-pane">
+        <i class="fas fa-users"></i>
+        <span>Clan Explorer</span>
+        <span class="kbd-hint">2</span>
+      </li>
+      <li class="nav-item" data-tab="player" role="tab" tabindex="0" aria-selected="false" aria-controls="player-pane">
+        <i class="fas fa-user-shield"></i>
+        <span>Player Profiler</span>
+        <span class="kbd-hint">3</span>
+      </li>
+      <li class="nav-item" data-tab="war" role="tab" tabindex="0" aria-selected="false" aria-controls="war-pane">
+        <i class="fas fa-fire"></i>
+        <span>War Tracker</span>
+        <span class="kbd-hint">4</span>
+      </li>
+      <li class="nav-divider"></li>
+      <li class="nav-item" data-tab="compare" role="tab" tabindex="0" aria-selected="false" aria-controls="compare-pane">
+        <i class="fas fa-balance-scale"></i>
+        <span>Clan Compare</span>
+        <span class="kbd-hint">5</span>
+      </li>
+    </ul>
+
+    <!-- Favorites / Quick Bookmarks -->
+    <div id="bookmarks-container" style="margin-top: auto; border-top: 1px solid var(--border-subtle); padding-top: 20px; display: flex; flex-direction: column; gap: 12px; margin-bottom: 20px;">
+      <h4 style="font-size: 11px; text-transform: uppercase; color: var(--text-muted); font-weight: 700; letter-spacing: 0.5px;">⭐ Bookmarks</h4>
+      <ul id="favorites-list" style="list-style: none; display: flex; flex-direction: column; gap: 8px; max-height: 160px; overflow-y: auto;">
+        <li style="color: var(--text-muted); font-size: 13px; font-style: italic;">No bookmarks added</li>
+      </ul>
+    </div>
+
+    <div class="header-actions">
+      <button class="theme-toggle-btn" id="theme-toggle-btn" aria-label="Toggle light/dark theme">
+        <i class="fas fa-sun"></i>
+        <span>Light Mode</span>
+      </button>
+      <button class="config-btn" id="config-btn">
+        <i class="fas fa-cog"></i>
+        <span>API Settings</span>
+      </button>
+    </div>
+  </aside>
+
+  <!-- Main Viewport -->
+  <main>
+    <div class="top-bar">
+      <div>
+        <h1 style="font-size: 28px; font-weight: 800; letter-spacing: 0.5px;">Clash Command Center</h1>
+        <p style="color: var(--text-muted); font-size: 14px; margin-top: 4px;">Real-time stats and metrics tracking</p>
+      </div>
+      <!-- Premium Live/Demo Mode Switcher -->
+      <div id="mode-toggle" class="mode-toggle-container demo-active" onclick="toggleDashboardMode()">
+        <div class="mode-toggle-active-bg"></div>
+        <div class="mode-toggle-option option-live">Live API</div>
+        <div class="mode-toggle-option option-demo">Demo Mode</div>
+      </div>
+    </div>
+
+    <!-- VIEW 1: Overview Dashboard -->
+    <section id="overview-pane" class="view-pane active" role="tabpanel" aria-labelledby="overview-tab">
+      <div style="display: flex; flex-direction: column; gap: 32px;">
+        <!-- Banner Card -->
+        <div class="overview-banner">
+          <div class="overview-banner-content">
+            <h2 class="gold-gradient-text" style="font-size: 28px; font-weight: 800; margin-bottom: 12px;">Command Center</h2>
+            <p style="color: var(--text-main); font-size: 16px; line-height: 1.6; margin-bottom: 20px;">
+              Your live connection to the official Clash of Clans Developer API is active! Inspect active wars, roster metrics, level progressions, and bookmarks instantly.
+            </p>
+            <button class="primary-btn" onclick="switchTab('clan')" style="padding: 10px 24px; font-size: 14px;">Explore Clans</button>
+          </div>
+          <div class="overview-banner-icon">
+            ⚔️
+          </div>
+        </div>
+
+        <div class="explorer-grid">
+          <!-- Featured Clan Summary -->
+          <div class="results-card" style="min-height: auto;">
+            <div style="display: flex; align-items: center; justify-content: space-between; border-bottom: 1px solid var(--border-subtle); padding-bottom: 16px;">
+              <div style="display: flex; align-items: center; gap: 16px;">
+                <img id="overview-clan-badge" src="" alt="badge" style="width: 48px; height: 48px; object-fit: contain;"/>
+                <div>
+                  <h3 id="overview-clan-name" style="font-size: 20px; font-weight: 700;">Nova Esports</h3>
+                  <span id="overview-clan-level" class="level-tag" style="font-size: 11px; padding: 2px 6px;">Level 24</span>
+                </div>
+              </div>
+              <button class="config-btn" onclick="switchTab('clan')" style="font-size: 13px; padding: 6px 14px; border-radius: 8px;">View Full Roster</button>
+            </div>
+            <p id="overview-clan-desc" style="color: var(--text-muted); line-height: 1.5; font-size: 14px;"></p>
+            
+            <div class="stats-row" style="margin-top: 12px;">
+              <div class="stat-card" style="padding: 16px; background: var(--bg-stone-dark);">
+                <div class="stat-icon gold" style="width: 40px; height: 40px; font-size: 16px;"><i class="fas fa-trophy"></i></div>
+                <div class="stat-details">
+                  <h4 style="font-size: 12px;">Total Trophies</h4>
+                  <p id="overview-trophies" style="font-size: 18px;"></p>
+                </div>
+              </div>
+              <div class="stat-card" style="padding: 16px; background: var(--bg-stone-dark);">
+                <div class="stat-icon elixir" style="width: 40px; height: 40px; font-size: 16px;"><i class="fas fa-users"></i></div>
+                <div class="stat-details">
+                  <h4 style="font-size: 12px;">Members</h4>
+                  <p id="overview-members-count" style="font-size: 18px;"></p>
+                </div>
+              </div>
+              <div class="stat-card" style="padding: 16px; background: var(--bg-stone-dark);">
+                <div class="stat-icon dark" style="width: 40px; height: 40px; font-size: 16px;"><i class="fas fa-shield"></i></div>
+                <div class="stat-details">
+                  <h4 style="font-size: 12px;">War Wins</h4>
+                  <p id="overview-war-wins" style="font-size: 18px;"></p>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <!-- Overview Analytics Card -->
+          <div class="results-card" style="min-height: auto; justify-content: center; align-items: center; gap: 16px;">
+            <h3 style="font-size: 18px; font-weight: 700; align-self: flex-start; border-bottom: 1px solid var(--border-subtle); padding-bottom: 12px; width: 100%;">Clan League Distribution</h3>
+            <div style="position: relative; width: 100%; height: 200px;">
+              <canvas id="overview-chart"></canvas>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- VIEW 2: Clan Explorer -->
+    <section id="clan-pane" class="view-pane" role="tabpanel" aria-labelledby="clan-tab">
+      <div class="explorer-grid">
+        <div class="sidebar-card">
+          <h3>Clan Search</h3>
+          <form id="clan-search-form" class="search-form">
+            <div class="input-group">
+              <label for="clan-tag-input">Clan Tag</label>
+              <input type="text" id="clan-tag-input" placeholder="e.g. #2PP2PP2P" required>
+            </div>
+            <button type="submit" class="primary-btn">
+              <i class="fas fa-search" style="margin-right: 8px;"></i> Search Clan
+            </button>
+          </form>
+        </div>
+        <div class="results-card" id="clan-results-container">
+          <!-- Populated by app.js -->
+        </div>
+      </div>
+    </section>
+
+    <!-- VIEW 3: Player Profiler -->
+    <section id="player-pane" class="view-pane" role="tabpanel" aria-labelledby="player-tab">
+      <div class="explorer-grid">
+        <div class="sidebar-card">
+          <h3>Player Profiler</h3>
+          <form id="player-search-form" class="search-form">
+            <div class="input-group">
+              <label for="player-tag-input">Player Tag</label>
+              <input type="text" id="player-tag-input" placeholder="e.g. #Y2CU0P8P" required>
+            </div>
+            <button type="submit" class="primary-btn">
+              <i class="fas fa-search" style="margin-right: 8px;"></i> Search Player
+            </button>
+          </form>
+        </div>
+        <div class="results-card" id="player-results-container">
+          <!-- Populated by app.js -->
+        </div>
+      </div>
+    </section>
+
+    <!-- VIEW 4: War Tracker -->
+    <section id="war-pane" class="view-pane" role="tabpanel" aria-labelledby="war-tab">
+      <div class="explorer-grid">
+        <div class="sidebar-card">
+          <h3>Track Clan War</h3>
+          <form id="war-search-form" class="search-form">
+            <div class="input-group">
+              <label for="war-clan-tag-input">Clan Tag</label>
+              <input type="text" id="war-clan-tag-input" placeholder="e.g. #2PP2PP2P" required>
+            </div>
+            <button type="submit" class="primary-btn">
+              <i class="fas fa-search" style="margin-right: 8px;"></i> Track War
+            </button>
+          </form>
+        </div>
+        <div style="display: flex; flex-direction: column; gap: 32px;">
+          <div class="results-card" id="war-results-container" style="min-height: auto;">
+            <!-- Populated by app.js -->
+          </div>
+          
+          <!-- Live War Feed Activity Logs (Simulated / Real Stream) -->
+          <div class="war-feed-container" id="war-feed-card" style="display: none;">
+            <div style="display: flex; align-items: center; justify-content: space-between; border-bottom: 1px solid var(--border-subtle); padding-bottom: 12px;">
+              <h3 style="font-size: 18px; font-weight: 700; display: flex; align-items: center; gap: 10px;">
+                <i class="fas fa-satellite-dish" style="color: var(--clash-gold); animation: pulse-dot 1.5s infinite;"></i>
+                Live Combat Event Log
+              </h3>
+              <span class="badge-small" style="background: rgba(74, 219, 134, 0.15); color: #4adb86; font-size: 11px;">AUTO-STREAM ACTIVE</span>
+            </div>
+            <ul class="war-feed-list" id="war-feed-timeline">
+              <!-- Animated events will insert dynamically here -->
+            </ul>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- VIEW 5: Clan Comparison -->
+    <section id="compare-pane" class="view-pane" role="tabpanel" aria-labelledby="compare-tab">
+      <div class="comparison-search-row">
+        <div class="comparison-search-card">
+          <h4><i class="fas fa-shield-alt" style="margin-right: 6px;"></i>Clan A</h4>
+          <form id="compare-clan-a-form" class="search-form">
+            <div class="input-group">
+              <label for="compare-clan-a-input">Clan Tag</label>
+              <input type="text" id="compare-clan-a-input" placeholder="e.g. #2PP2PP2P" required>
+            </div>
+            <button type="submit" class="primary-btn">Load Clan A</button>
+          </form>
+        </div>
+        <div class="comparison-search-card">
+          <h4><i class="fas fa-shield-alt" style="margin-right: 6px;"></i>Clan B</h4>
+          <form id="compare-clan-b-form" class="search-form">
+            <div class="input-group">
+              <label for="compare-clan-b-input">Clan Tag</label>
+              <input type="text" id="compare-clan-b-input" placeholder="e.g. #8U2RYV0Y" required>
+            </div>
+            <button type="submit" class="primary-btn">Load Clan B</button>
+          </form>
+        </div>
+      </div>
+      <div id="comparison-results-container">
+        <div class="placeholder-state">
+          <i class="fas fa-balance-scale" style="font-size: 48px; color: var(--clash-gold); opacity: 0.6; margin-bottom: 12px;"></i>
+          <p style="font-size: 15px; color: var(--text-muted);">Search two clans above to compare them head-to-head.</p>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <!-- Settings / API Configuration Modal -->
+  <dialog class="modal" id="settings-modal">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h3>Dashboard Configuration</h3>
+        <button class="close-btn" id="modal-close">&times;</button>
+      </div>
+      
+      <div class="input-group">
+        <label for="api-token-input">Clash of Clans Developer API Token</label>
+        <input type="password" id="api-token-input" placeholder="Enter authorization bearer token...">
+        <span style="font-size: 11px; color: var(--text-muted); margin-top: 4px;">Get your API key at <a href="https://developer.clashofclans.com/" target="_blank" style="color: var(--clash-gold);">developer.clashofclans.com</a>.</span>
+      </div>
+
+      <div class="input-group">
+        <label for="proxy-url-input">CORS Proxy Server URL</label>
+        <input type="text" id="proxy-url-input" placeholder="https://cors-anywhere.herokuapp.com/">
+        <span style="font-size: 11px; color: var(--text-muted); margin-top: 4px;">Due to Clash of Clans API CORS security blocks, a proxy is required for direct browser requests.</span>
+      </div>
+
+      <button class="primary-btn" id="save-settings-btn">Save Configurations</button>
+    </div>
+  </dialog>
+
+  <!-- Scripts -->
+  <script src="mockData.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>
