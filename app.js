@@ -713,6 +713,7 @@ function toggleDashboardMode() {
   // Reset other panes placeholder
   showInitialPlaceholders();
 }
+window.toggleDashboardMode = toggleDashboardMode;
 
 // Navigation & Tabs Setup
 function setupNavigation() {
@@ -1248,6 +1249,27 @@ async function loadOverviewClan(tag) {
 
   } catch (err) {
     showToast(`Error loading Overview Clan: ${err.message}`, "error");
+    const overviewContainer = document.querySelector('#overview-pane .explorer-grid');
+    if (overviewContainer) {
+      overviewContainer.innerHTML = `
+        <div class="results-card" style="grid-column: span 2; min-height: auto; align-items: center; justify-content: center; padding: 40px; text-align: center; gap: 16px;">
+          <i class="fas fa-exclamation-triangle" style="font-size: 48px; color: var(--clash-elixir); margin-bottom: 16px;"></i>
+          <h3 style="font-size: 18px; font-weight: 700; margin-bottom: 8px;">Live API Connection Failed</h3>
+          <p style="color: var(--text-muted); max-width: 500px; line-height: 1.6; margin: 0 auto 16px;">
+            Failed to connect to the live API (${escapeHtml(err.message)}). 
+            Your API token may be rate-limited, expired, or your IP/CORS proxy configuration is blocked.
+          </p>
+          <div style="display: flex; gap: 12px; justify-content: center; flex-wrap: wrap;">
+            <button class="primary-btn" onclick="toggleDashboardMode()">
+              <i class="fas fa-toggle-on"></i> Switch to Demo Mode
+            </button>
+            <button class="config-btn" onclick="document.getElementById('config-btn').click()">
+              <i class="fas fa-cog"></i> Check API Settings
+            </button>
+          </div>
+        </div>
+      `;
+    }
   }
 }
 
