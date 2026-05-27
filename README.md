@@ -9,27 +9,24 @@ A visually stunning, glassmorphic dark-mode dashboard for **Clash of Clans** pla
 ## ✨ Features
 
 * **🛡️ Home Command Center**: Instant overview of your designated home clan, featuring total trophies, active members, and war records.
-* **🏆 War Hub (CWL & Logs)**: Track active wars in real-time, view **Clan War League (CWL) brackets & standings**, and explore detailed past **War Log histories** with visual star comparisons.
+* **🔍 Clan Search by Name & Tag**: Search clans dynamically by their tag or toggle to name-based lookup with active player count filters.
+* **⚔️ War Hub (CWL, History, & Attack Matrix)**: Track active wars in real-time, inspect Round-by-Round **CWL brackets & standings**, explore **War Log histories**, and utilize the brand-new **⚔️ War Attack Matrix** to inspect attacker-vs-defender star performance grids.
+* **📊 Player Head-to-Head Compare**: Compare two clashing profiles side-by-side on all major metrics, featuring automatic winner highlighting in vibrant HSL-green.
+* **🛡️ Community Layout Gallery**: A completely integrated tactical layout explorer. Filter community designs by Town Hall (TH 7-17) and base type (War, Home, CWL), upvote layouts dynamically, and copy layout links directly.
 * **🌎 Global & Local Leaderboards**: Search and browse top players and clans globally (International) or sorted by country regions (e.g. United States, India, Germany).
 * **🏰 Capital Raids Tracker**: Inspect your Clan Capital district layout levels and trace historical logs of Capital Gold gathered during Raid Weekends.
 * **🎟️ Gold Pass Season Progress**: Sleek glassmorphic Battle Pass widget showing season countdowns, progress bars, and high-tier rewards.
-* **🏷️ Recruitment & Playstyle Labels**: Glow playstyle tags (e.g., *Clan Wars*, *Active Donator*) as beautiful badges directly on clan rosters and player profiles.
-* **📊 Clan League Distribution**: Dynamic charting (via Chart.js) visualizing your clan members' trophy brackets.
-* **🔍 Autocomplete & Search History**: Save recent searches locally for one-click access.
-* **📈 Donation Ratios**: Bar chart comparing clan members' donations given versus donations received.
-* **⚔️ Head-to-Head Clan Comparison**: Load two clans side-by-side to compare levels, trophy records, capital configurations, win streaks, and overlay radar comparisons.
-* **🔥 Live Combat Feed**: Stream real-time battle events simulated directly for Sandbox testing or bridged live.
-* **🎒 Spell & Achievement Profiling**: Detailed breakdowns of player spell arsenals, equipment levels, meta recommendations, and achievement stars.
+* **📅 Clan Activity Heatmap**: Visual GitHub-style login and contribution calendar tracking mock or live activity indexes.
+* **💝 Donation Leaderboard**: Beautiful HSL-gradient donation progress meters displaying members' given vs received metrics.
+* **📥 CSV Data Exporter**: Integrated single-click CSV export utility to download local spreadsheets for active clan rosters and war campaign results.
 * **🌗 Dual Theme Controls**: Easily toggle between dark obsidian mode and sleek light mode.
-* **⌨️ Keyboard Shortcuts**: Smooth dashboard traversal (`1`-`7` for tabs, `/` to focus search inputs, `Esc` to exit settings).
+* **⌨️ Keyboard Shortcuts**: Smooth dashboard traversal (`1`-`9` for tabs, `/` to focus search inputs, `Esc` to exit settings).
 
-### 👑 Premium Upgrades & Analytics
+### 👑 Premium Upgrades & Architecture
+* **🛡️ Strict Endpoint Allowlisting**: Added a robust regex validator inside the secure proxy server ([server.js](file:///Users/gbvk/Downloads/repo/clash_of_clans/server.js)) to block unauthorized endpoints.
 * **⚡ Live Latency Meter**: Responsive header pill measuring connection latency and displaying live health status dot.
-* **💾 Local Cache Engine**: Caches API queries locally for 5 minutes, mitigating rate-limiting blocks and accelerating loading speeds.
+* **💾 LRU Cache Engine**: Advanced caching in [app.js](file:///Users/gbvk/Downloads/repo/clash_of_clans/app.js) with a hard-cap limit of `50` cached endpoints to protect rate-limits and optimize speeds.
 * **💻 Developer Prettified JSON Inspector**: Slide-out drawer displaying beautified, formatted API JSON payloads for any queried clan, player, or war campaign, complete with single-click copying.
-* **🎯 Combat Strengths Radar**: Interactive 5-point radar charts visualizing clashing indices (War Weight, Aggression, Activity, Trophies, and Defense).
-* **🔮 Tactical War Matchmaker**: Base optimizer highlighting optimal rosters matching war brackets.
-* **🎁 Clickable Gold Pass rewards**: Interactive rewards previewer with detailed magic item metadata popups.
 
 ---
 

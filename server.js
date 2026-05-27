@@ -72,7 +72,32 @@ const server = http.createServer((req, res) => {
       return;
     }
 
-    const apiPath = req.url.substring(4); // Remove "/api" prefix
+    let apiPath = req.url.substring(4); // Remove "/api" prefix
+
+    // Input sanitization: strip any characters that aren't alphanumeric, %, /, ?, =, &, #, +, -, _, .
+    apiPath = apiPath.replace(/[^a-zA-Z0-9%\/?=&#\+\-_.]/g, '');
+
+    // Allowlisted Clash of Clans API path patterns
+    const ALLOWED_API_PATTERNS = [
+      /^\/clans(\/|$|\?)/,
+      /^\/players(\/|$|\?)/,
+      /^\/locations(\/|$|\?)/,
+      /^\/leagues(\/|$|\?)/,
+      /^\/warleagues(\/|$|\?)/,
+      /^\/goldpass(\/|$|\?)/,
+      /^\/labels(\/|$|\?)/,
+    ];
+
+    const isAllowed = ALLOWED_API_PATTERNS.some(pattern => pattern.test(apiPath));
+    if (!isAllowed) {
+      res.writeHead(400, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({
+        error: 'Invalid API path',
+        message: 'The requested API path is not allowed. Permitted endpoints: /clans, /players, /locations, /leagues, /warleagues, /goldpass, /labels.'
+      }));
+      return;
+    }
+
     const cocUrl = `https://api.clashofclans.com/v1${apiPath}`;
     
     const authHeader = req.headers['authorization'];
@@ -92,6 +117,7 @@ const server = http.createServer((req, res) => {
       res.writeHead(proxyRes.statusCode, {
         'Content-Type': proxyRes.headers['content-type'] || 'application/json',
         'Access-Control-Allow-Origin': '*',
+        'X-Proxy-Validated': 'true',
         'X-RateLimit-Limit': RATE_LIMIT_MAX_REQUESTS.toString(),
         'X-RateLimit-Remaining': Math.max(0, RATE_LIMIT_MAX_REQUESTS - (rateLimitStore.get(clientIp)?.count || 0)).toString(),
       });

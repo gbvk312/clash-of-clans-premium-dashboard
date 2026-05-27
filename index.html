@@ -8,6 +8,7 @@
   <link rel="stylesheet" href="style.css">
   <!-- Font Awesome Icons for beautiful gaming styling -->
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+  <link rel="preload" href="https://cdn.jsdelivr.net/npm/chart.js" as="script">
 </head>
 <body>
 
@@ -51,18 +52,28 @@
       <li class="nav-item" data-tab="leaderboards" role="tab" tabindex="0" aria-selected="false" aria-controls="leaderboards-pane">
         <i class="fas fa-trophy"></i>
         <span>Leaderboards</span>
-        <span class="kbd-hint">6</span>
+        <span class="kbd-hint">5</span>
       </li>
       <li class="nav-item" data-tab="capital" role="tab" tabindex="0" aria-selected="false" aria-controls="capital-pane">
         <i class="fas fa-fort-awesome"></i>
         <span>Capital Raids</span>
+        <span class="kbd-hint">6</span>
+      </li>
+      <li class="nav-item" data-tab="layouts" role="tab" tabindex="0" aria-selected="false" aria-controls="layouts-pane">
+        <i class="fas fa-th"></i>
+        <span>Base Layouts</span>
         <span class="kbd-hint">7</span>
       </li>
       <li class="nav-divider"></li>
       <li class="nav-item" data-tab="compare" role="tab" tabindex="0" aria-selected="false" aria-controls="compare-pane">
         <i class="fas fa-balance-scale"></i>
         <span>Clan Compare</span>
-        <span class="kbd-hint">5</span>
+        <span class="kbd-hint">8</span>
+      </li>
+      <li class="nav-item" data-tab="player-compare" role="tab" tabindex="0" aria-selected="false" aria-controls="player-compare-pane">
+        <i class="fas fa-exchange-alt"></i>
+        <span>Player Compare</span>
+        <span class="kbd-hint">9</span>
       </li>
     </ul>
 
@@ -190,6 +201,10 @@
       <div class="explorer-grid">
         <div class="sidebar-card">
           <h3>Clan Search</h3>
+          <div class="search-tab-toggle">
+            <button class="search-tab-btn active" data-search-mode="tag" onclick="toggleClanSearchMode('tag')">By Tag</button>
+            <button class="search-tab-btn" data-search-mode="name" onclick="toggleClanSearchMode('name')">By Name</button>
+          </div>
           <form id="clan-search-form" class="search-form">
             <div class="input-group">
               <label for="clan-tag-input">Clan Tag</label>
@@ -197,6 +212,25 @@
             </div>
             <button type="submit" class="primary-btn">
               <i class="fas fa-search" style="margin-right: 8px;"></i> Search Clan
+            </button>
+          </form>
+          <form id="clan-name-search-form" class="search-form" style="display: none;">
+            <div class="input-group">
+              <label for="clan-name-input">Clan Name</label>
+              <input type="text" id="clan-name-input" placeholder="e.g. Nova Esports" required>
+            </div>
+            <div class="input-group">
+              <label for="clan-min-members">Min Members</label>
+              <select id="clan-min-members" style="width: 100%; background: var(--bg-stone); border: 1px solid var(--border-subtle); color: var(--text-main); padding: 10px 14px; border-radius: 8px; font-size: 14px;">
+                <option value="1">Any</option>
+                <option value="10">10+</option>
+                <option value="20">20+</option>
+                <option value="30">30+</option>
+                <option value="40">40+</option>
+              </select>
+            </div>
+            <button type="submit" class="primary-btn">
+              <i class="fas fa-search" style="margin-right: 8px;"></i> Search by Name
             </button>
           </form>
         </div>
@@ -270,6 +304,17 @@
                 <!-- Animated events insert here -->
               </ul>
             </div>
+
+            <!-- War Attack Matrix -->
+            <div class="attack-matrix-container" id="war-attack-matrix" style="display: none;">
+              <div class="flex-between border-bottom-subtle pb-12">
+                <h3 class="text-lg font-bold">⚔️ Attack Matrix</h3>
+                <span class="text-xs text-muted">Who attacked whom — star breakdown</span>
+              </div>
+              <div id="war-attack-matrix-grid" style="margin-top: 16px; overflow-x: auto;">
+                <!-- Populated by app.js -->
+              </div>
+            </div>
           </div>
 
           <!-- SUB-VIEW 4B: CWL Standings -->
@@ -338,6 +383,55 @@
       </div>
     </section>
 
+    <!-- VIEW: Base Layouts Gallery -->
+    <section id="layouts-pane" class="view-pane" role="tabpanel" aria-labelledby="layouts-tab">
+      <div class="explorer-grid">
+        <div class="sidebar-card">
+          <h3>Submit Layout</h3>
+          <form id="layout-submit-form" class="search-form">
+            <div class="input-group">
+              <label for="layout-link-input">Layout Link</label>
+              <input type="text" id="layout-link-input" placeholder="https://link.clashofclans.com/..." required>
+            </div>
+            <div class="input-group">
+              <label for="layout-th-select">Town Hall Level</label>
+              <select id="layout-th-select" style="width: 100%; background: var(--bg-stone); border: 1px solid var(--border-subtle); color: var(--text-main); padding: 10px 14px; border-radius: 8px; font-size: 14px;">
+                <option value="17">TH 17</option>
+                <option value="16" selected>TH 16</option>
+                <option value="15">TH 15</option>
+                <option value="14">TH 14</option>
+                <option value="13">TH 13</option>
+                <option value="12">TH 12</option>
+                <option value="11">TH 11</option>
+                <option value="10">TH 10</option>
+                <option value="9">TH 9</option>
+                <option value="8">TH 8</option>
+                <option value="7">TH 7</option>
+              </select>
+            </div>
+            <div class="input-group">
+              <label for="layout-type-select">Layout Type</label>
+              <select id="layout-type-select" style="width: 100%; background: var(--bg-stone); border: 1px solid var(--border-subtle); color: var(--text-main); padding: 10px 14px; border-radius: 8px; font-size: 14px;">
+                <option value="war">War Base</option>
+                <option value="home">Home Base</option>
+                <option value="cwl">CWL Base</option>
+              </select>
+            </div>
+            <div class="input-group">
+              <label for="layout-desc-input">Description</label>
+              <input type="text" id="layout-desc-input" placeholder="Anti-3 star, ring base..." required>
+            </div>
+            <button type="submit" class="primary-btn">
+              <i class="fas fa-plus" style="margin-right: 8px;"></i> Add Layout
+            </button>
+          </form>
+        </div>
+        <div class="results-card" id="layout-gallery-container">
+          <!-- Populated by app.js -->
+        </div>
+      </div>
+    </section>
+
     <!-- VIEW 5: Clan Comparison -->
     <section id="compare-pane" class="view-pane" role="tabpanel" aria-labelledby="compare-tab">
       <div class="comparison-search-row">
@@ -366,6 +460,38 @@
         <div class="placeholder-state">
           <i class="fas fa-balance-scale" style="font-size: 48px; color: var(--clash-gold); opacity: 0.6; margin-bottom: 12px;"></i>
           <p style="font-size: 15px; color: var(--text-muted);">Search two clans above to compare them head-to-head.</p>
+        </div>
+      </div>
+    </section>
+
+    <!-- VIEW: Player Compare -->
+    <section id="player-compare-pane" class="view-pane" role="tabpanel" aria-labelledby="player-compare-tab">
+      <div class="comparison-search-row">
+        <div class="comparison-search-card">
+          <h4><i class="fas fa-user-shield" style="margin-right: 6px;"></i>Player A</h4>
+          <form id="player-compare-a-form" class="search-form">
+            <div class="input-group">
+              <label for="player-compare-a-input">Player Tag</label>
+              <input type="text" id="player-compare-a-input" placeholder="e.g. #Y2CU0P8P" required>
+            </div>
+            <button type="submit" class="primary-btn">Load Player A</button>
+          </form>
+        </div>
+        <div class="comparison-search-card">
+          <h4><i class="fas fa-user-shield" style="margin-right: 6px;"></i>Player B</h4>
+          <form id="player-compare-b-form" class="search-form">
+            <div class="input-group">
+              <label for="player-compare-b-input">Player Tag</label>
+              <input type="text" id="player-compare-b-input" placeholder="e.g. #Q2R8Y9LL" required>
+            </div>
+            <button type="submit" class="primary-btn">Load Player B</button>
+          </form>
+        </div>
+      </div>
+      <div id="player-compare-results-container">
+        <div class="placeholder-state">
+          <i class="fas fa-exchange-alt" style="font-size: 48px; color: var(--clash-gold); opacity: 0.6; margin-bottom: 12px;"></i>
+          <p style="font-size: 15px; color: var(--text-muted);">Search two players above to compare them head-to-head.</p>
         </div>
       </div>
     </section>

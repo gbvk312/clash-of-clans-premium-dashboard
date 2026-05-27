@@ -1,0 +1,15 @@
+{
+  "name": "clash-command-center",
+  "version": "2.0.0",
+  "description": "Premium Clash of Clans dashboard with real-time clan stats, player profiles, war tracking, and clan comparison tools.",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js",
+    "dev": "node server.js"
+  },
+  "keywords": ["clash-of-clans", "dashboard", "api", "gaming"],
+  "license": "MIT",
+  "engines": {
+    "node": ">=16.0.0"
+  }
+}

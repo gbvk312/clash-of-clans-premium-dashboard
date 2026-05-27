@@ -24,6 +24,11 @@ const MOCK_CLANS = {
     warLosses: 112,
     isWarLogPublic: true,
     warLeague: { id: 48000018, name: "Champion League I" },
+    labels: [
+      { id: 56000000, name: "Clan Wars", iconUrls: { small: "https://api-assets.clashofclans.com/labels/64/lXaocg2Pt1_C2y1ZyZBNcoLxrOC5697YodO2od7NZUs.png" } },
+      { id: 56000001, name: "Clan Games", iconUrls: { small: "https://api-assets.clashofclans.com/labels/64/up340Z5v5z6Fe0cl3zb9zS48eXG4u1G5Zq-Op_7OoE.png" } },
+      { id: 56000002, name: "Active Donator", iconUrls: { small: "https://api-assets.clashofclans.com/labels/64/9oZex8Tz75j8GgNlG2aLd4R18D80F124e_0.png" } }
+    ],
     members: 48,
     chatLanguage: { id: 75000000, name: "English", languageCode: "EN" },
     clanCapital: {
@@ -175,6 +180,10 @@ const MOCK_CLANS = {
     warLosses: 198,
     isWarLogPublic: true,
     warLeague: { id: 48000015, name: "Crystal League I" },
+    labels: [
+      { id: 56000000, name: "Clan Wars", iconUrls: { small: "https://api-assets.clashofclans.com/labels/64/lXaocg2Pt1_C2y1ZyZBNcoLxrOC5697YodO2od7NZUs.png" } },
+      { id: 56000001, name: "Clan Games", iconUrls: { small: "https://api-assets.clashofclans.com/labels/64/up340Z5v5z6Fe0cl3zb9zS48eXG4u1G5Zq-Op_7OoE.png" } }
+    ],
     members: 35,
     chatLanguage: { id: 75000000, name: "English", languageCode: "EN" },
     clanCapital: {
@@ -287,6 +296,10 @@ const MOCK_PLAYERS = {
       { name: "Freeze Spell", level: 7, maxLevel: 7, village: "home" },
       { name: "Clone Spell", level: 8, maxLevel: 8, village: "home" },
       { name: "Invisibility Spell", level: 4, maxLevel: 4, village: "home" }
+    ],
+    labels: [
+      { id: 57000001, name: "Base Designing", iconUrls: { small: "https://api-assets.clashofclans.com/labels/64/up340Z5v5z6Fe0cl3zb9zS48eXG4u1G5Zq-Op_7OoE.png" } },
+      { id: 57000002, name: "Trophy Pushing", iconUrls: { small: "https://api-assets.clashofclans.com/labels/64/lXaocg2Pt1_C2y1ZyZBNcoLxrOC5697YodO2od7NZUs.png" } }
     ]
   },
   "#Q2R8Y9LL": {
@@ -336,7 +349,10 @@ const MOCK_PLAYERS = {
       { name: "Barbarian", level: 11, maxLevel: 12, village: "home" },
       { name: "Archer", level: 11, maxLevel: 12, village: "home" }
     ],
-    spells: []
+    spells: [],
+    labels: [
+      { id: 57000000, name: "Farming", iconUrls: { small: "https://api-assets.clashofclans.com/labels/64/9oZex8Tz75j8GgNlG2aLd4R18D80F124e_0.png" } }
+    ]
   }
 };
 
@@ -502,12 +518,25 @@ const MOCK_LABELS = {
   ]
 };
 
-// Seed labels to existing mock profiles for maximum integration depth
-MOCK_CLANS["#2PP2PP2P"].labels = [MOCK_LABELS.clans[0], MOCK_LABELS.clans[1], MOCK_LABELS.clans[2]];
-MOCK_CLANS["#8U2RYV0Y"].labels = [MOCK_LABELS.clans[0], MOCK_LABELS.clans[1]];
-MOCK_PLAYERS["#Y2CU0P8P"].labels = [MOCK_LABELS.players[1], MOCK_LABELS.players[2]];
-MOCK_PLAYERS["#Q2R8Y9LL"].labels = [MOCK_LABELS.players[0]];
+const MOCK_LAYOUT_GALLERY = [
+  { id: 1, thLevel: 16, type: 'war', description: 'Anti-3 Star Ring Base - TH16 Meta', link: 'https://link.clashofclans.com/en?action=OpenLayout&id=TH16-War-Ring', author: 'ClashMaster', votes: 342, createdAt: '2026-05-20T10:00:00Z' },
+  { id: 2, thLevel: 16, type: 'home', description: 'Trophy Push Island Base - Legend League', link: 'https://link.clashofclans.com/en?action=OpenLayout&id=TH16-Home-Island', author: 'ElixirQueen', votes: 218, createdAt: '2026-05-18T14:30:00Z' },
+  { id: 3, thLevel: 15, type: 'war', description: 'Anti-Queen Charge Compact Base', link: 'https://link.clashofclans.com/en?action=OpenLayout&id=TH15-War-Compact', author: 'DarkKnight', votes: 195, createdAt: '2026-05-15T08:00:00Z' },
+  { id: 4, thLevel: 15, type: 'cwl', description: 'CWL Teaser Base - Bait Infernos', link: 'https://link.clashofclans.com/en?action=OpenLayout&id=TH15-CWL-Teaser', author: 'GoblinKing', votes: 167, createdAt: '2026-05-12T16:00:00Z' },
+  { id: 5, thLevel: 14, type: 'war', description: 'Southern Teaser Anti-Lavaloon', link: 'https://link.clashofclans.com/en?action=OpenLayout&id=TH14-War-South', author: 'ElectroStorm', votes: 143, createdAt: '2026-05-10T12:00:00Z' },
+  { id: 6, thLevel: 14, type: 'home', description: 'Farming Crows Base - Max DE Protection', link: 'https://link.clashofclans.com/en?action=OpenLayout&id=TH14-Home-Crows', author: 'GrandWarlock', votes: 128, createdAt: '2026-05-08T09:00:00Z' }
+];
 
+const MOCK_CLAN_SEARCH_RESULTS = {
+  items: [
+    { tag: '#2PP2PP2P', name: 'Nova Esports', type: 'inviteOnly', members: 48, clanLevel: 24, clanPoints: 48950, warWins: 654, warFrequency: 'always', badgeUrls: { small: 'https://api-assets.clashofclans.com/badges/70/4n907wz4IqgW-JpA6tWnUq8pU08VzFq0832J4mD5d_0.png', medium: 'https://api-assets.clashofclans.com/badges/200/4n907wz4IqgW-JpA6tWnUq8pU08VzFq0832J4mD5d_0.png' }, labels: [{ name: 'Clan Wars', iconUrls: { small: 'https://api-assets.clashofclans.com/labels/64/lXaocg2Pt1_C2y1ZyZBNcoLxrOC5697YodO2od7NZUs.png' }}] },
+    { tag: '#8U2RYV0Y', name: 'Dark Elixir', type: 'inviteOnly', members: 35, clanLevel: 18, clanPoints: 34500, warWins: 322, warFrequency: 'twiceAWeek', badgeUrls: { small: 'https://api-assets.clashofclans.com/badges/70/u32qC3wKj2Vex8Tz75j8GgNlG2aLd4R18D80F124e_0.png', medium: 'https://api-assets.clashofclans.com/badges/200/u32qC3wKj2Vex8Tz75j8GgNlG2aLd4R18D80F124e_0.png' }, labels: [{ name: 'Clan Games', iconUrls: { small: 'https://api-assets.clashofclans.com/labels/64/up340Z5v5z6Fe0cl3zb9zS48eXG4u1G5Zq-Op_7OoE.png' }}] },
+    { tag: '#NOVA1234', name: 'Nova Academy', type: 'open', members: 42, clanLevel: 15, clanPoints: 31200, warWins: 198, warFrequency: 'always', badgeUrls: { small: 'https://api-assets.clashofclans.com/badges/70/4n907wz4IqgW-JpA6tWnUq8pU08VzFq0832J4mD5d_0.png', medium: 'https://api-assets.clashofclans.com/badges/200/4n907wz4IqgW-JpA6tWnUq8pU08VzFq0832J4mD5d_0.png' }, labels: [] },
+    { tag: '#NOVA5678', name: 'Nova Rising', type: 'inviteOnly', members: 28, clanLevel: 12, clanPoints: 24800, warWins: 145, warFrequency: 'always', badgeUrls: { small: 'https://api-assets.clashofclans.com/badges/70/u32qC3wKj2Vex8Tz75j8GgNlG2aLd4R18D80F124e_0.png', medium: 'https://api-assets.clashofclans.com/badges/200/u32qC3wKj2Vex8Tz75j8GgNlG2aLd4R18D80F124e_0.png' }, labels: [] }
+  ]
+};
+
+// Backward-compatible individual window assignments
 window.MOCK_CLANS = MOCK_CLANS;
 window.MOCK_PLAYERS = MOCK_PLAYERS;
 window.MOCK_WARS = MOCK_WARS;
@@ -517,4 +546,20 @@ window.MOCK_WAR_LOG = MOCK_WAR_LOG;
 window.MOCK_CAPITAL_RAIDS = MOCK_CAPITAL_RAIDS;
 window.MOCK_GOLD_PASS = MOCK_GOLD_PASS;
 window.MOCK_LABELS = MOCK_LABELS;
+window.MOCK_LAYOUT_GALLERY = MOCK_LAYOUT_GALLERY;
+window.MOCK_CLAN_SEARCH_RESULTS = MOCK_CLAN_SEARCH_RESULTS;
 
+// Unified namespace
+window.MOCK_DATA = {
+  clans: MOCK_CLANS,
+  players: MOCK_PLAYERS,
+  wars: MOCK_WARS,
+  cwl: MOCK_CWL,
+  leaderboards: MOCK_LEADERBOARDS,
+  warLog: MOCK_WAR_LOG,
+  capitalRaids: MOCK_CAPITAL_RAIDS,
+  goldPass: MOCK_GOLD_PASS,
+  labels: MOCK_LABELS,
+  layoutGallery: MOCK_LAYOUT_GALLERY,
+  clanSearchResults: MOCK_CLAN_SEARCH_RESULTS
+};

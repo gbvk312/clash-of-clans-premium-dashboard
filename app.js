@@ -2,19 +2,25 @@
 
 // ===== CACHING & INSPECTOR UTILITIES =====
 const cocCache = {
+  maxSize: 50,
+  ttl: 5 * 60 * 1000,
   get(endpoint) {
     const cached = localStorage.getItem(`coc_cache_${endpoint}`);
     if (!cached) return null;
     try {
       const { data, timestamp } = JSON.parse(cached);
-      if (Date.now() - timestamp < 5 * 60 * 1000) {
+      if (Date.now() - timestamp < this.ttl) {
+        // Touch for LRU (re-set to update timestamp)
+        this.set(endpoint, data);
         return data;
       }
+      localStorage.removeItem(`coc_cache_${endpoint}`);
     } catch (e) {}
     return null;
   },
   set(endpoint, data) {
     try {
+      this.evictIfNeeded();
       localStorage.setItem(`coc_cache_${endpoint}`, JSON.stringify({
         data,
         timestamp: Date.now()
@@ -23,8 +29,27 @@ const cocCache = {
       this.clearOld();
     }
   },
-  clearOld() {
+  evictIfNeeded() {
+    const cacheKeys = [];
     for (let i = 0; i < localStorage.length; i++) {
+      const key = localStorage.key(i);
+      if (key && key.startsWith('coc_cache_')) {
+        try {
+          const { timestamp } = JSON.parse(localStorage.getItem(key));
+          cacheKeys.push({ key, timestamp });
+        } catch(e) {
+          localStorage.removeItem(key);
+        }
+      }
+    }
+    if (cacheKeys.length >= this.maxSize) {
+      cacheKeys.sort((a, b) => a.timestamp - b.timestamp);
+      const toRemove = cacheKeys.slice(0, cacheKeys.length - this.maxSize + 10);
+      toRemove.forEach(item => localStorage.removeItem(item.key));
+    }
+  },
+  clearOld() {
+    for (let i = localStorage.length - 1; i >= 0; i--) {
       const key = localStorage.key(i);
       if (key && key.startsWith('coc_cache_')) {
         localStorage.removeItem(key);
@@ -90,7 +115,7 @@ const state = {
   proxyUrl: localStorage.getItem('coc_proxy_url') || 'https://cors-anywhere.herokuapp.com/',
   favorites: JSON.parse(localStorage.getItem('coc_favorites')) || [],
   homeClanTag: localStorage.getItem('coc_home_clan') || '',
-  mode: localStorage.getItem('coc_dashboard_mode') || 'demo', // Defaults to 'demo' for premium visual experience out-of-the-box
+  mode: localStorage.getItem('coc_dashboard_mode') || 'demo',
   
   // Loaded Data
   currentClan: null,
@@ -99,10 +124,16 @@ const state = {
 
   // Comparison Data
   compareClans: { a: null, b: null },
+  comparePlayers: { a: null, b: null },
 
   // Table Sort State
   rosterSortKey: 'trophies',
-  rosterSortDirection: 'desc'
+  rosterSortDirection: 'desc',
+
+  // Layout gallery state
+  layouts: [],
+  layoutFilterType: 'all',
+  votedLayouts: JSON.parse(localStorage.getItem('coc_voted_layouts') || '[]')
 };
 
 // Global Chart references to avoid overlay bugs
@@ -111,6 +142,7 @@ let clanChart = null;
 let warInterval = null;
 let countdownInterval = null;
 let comparisonChart = null;
+let playerComparisonChart = null;
 
 // Chart.js lazy-loading
 let chartJsLoaded = false;
@@ -141,12 +173,19 @@ function escapeHtml(str) {
 function showToast(message, type = 'info', duration = 4000) {
   const container = document.getElementById('toast-container');
   if (!container) return;
+  
+  const existingToasts = container.querySelectorAll('.toast');
+  if (existingToasts.length >= 5) {
+    existingToasts[0].remove();
+  }
+
   const icons = {
     success: 'fas fa-check-circle',
     error: 'fas fa-times-circle',
     info: 'fas fa-info-circle',
     warning: 'fas fa-exclamation-triangle'
   };
+  
   const toast = document.createElement('div');
   toast.className = `toast toast-${type}`;
   toast.innerHTML = `
@@ -231,24 +270,16 @@ function renderSearchDropdown(inputId, type) {
   dropdown.innerHTML = `
     <div class="search-dropdown-header">
       <span>Recent Searches</span>
-      <button class="search-dropdown-clear" onclick="searchHistory.clear('${type}'); document.getElementById('${inputId}-dropdown').classList.remove('visible');">Clear</button>
+      <button class="search-dropdown-clear" data-action="clear-history" data-type="${type}" data-input-id="${inputId}">Clear</button>
     </div>
     ${history.map(h => `
-      <div class="search-dropdown-item" data-tag="${escapeHtml(h.tag)}">
+      <div class="search-dropdown-item" data-action="select-history-item" data-tag="${escapeHtml(h.tag)}" data-input-id="${inputId}">
         <i class="fas fa-history"></i>
         <span>${escapeHtml(h.name || h.tag)}</span>
         <small style="color: var(--text-muted); margin-left: auto;">${escapeHtml(h.tag)}</small>
       </div>
     `).join('')}
   `;
-  
-  dropdown.querySelectorAll('.search-dropdown-item').forEach(item => {
-    item.addEventListener('click', () => {
-      input.value = item.dataset.tag;
-      dropdown.classList.remove('visible');
-      input.closest('form')?.dispatchEvent(new Event('submit', { cancelable: true }));
-    });
-  });
   
   dropdown.classList.add('visible');
 }
@@ -294,6 +325,42 @@ function exportToClipboard(type) {
       showToast('Could not copy to clipboard.', 'error');
     });
   }
+}
+
+function exportToCSV(type) {
+  let csvContent = "data:text/csv;charset=utf-8,";
+  let filename = "export.csv";
+  
+  if (type === 'clan' && state.currentClan) {
+    filename = `${state.currentClan.name.replace(/\s+/g, '_')}_roster.csv`;
+    csvContent += "Name,Tag,Role,ExpLevel,Trophies,DonationsGiven,DonationsReceived\n";
+    state.currentClan.memberList.forEach(m => {
+      csvContent += `"${m.name}","${m.tag}","${m.role}",${m.expLevel},${m.trophies},${m.donations},${m.donationsReceived}\n`;
+    });
+  } else if (type === 'war' && state.currentWar) {
+    filename = `war_${state.currentWar.clan.name.replace(/\s+/g, '_')}_vs_${state.currentWar.opponent.name.replace(/\s+/g, '_')}.csv`;
+    csvContent += "Attacker Name,Attacker Tag,Defender Name,Defender Tag,Stars,DestructionPercent,Order\n";
+    state.currentWar.clan.members.forEach(m => {
+      if (m.attacks) {
+        m.attacks.forEach(atk => {
+          const defender = state.currentWar.opponent.members.find(o => o.tag === atk.defenderTag) || { name: "Unknown" };
+          csvContent += `"${m.name}","${m.tag}","${defender.name}","${atk.defenderTag}",${atk.stars},${atk.destructionPercentage},${atk.order}\n`;
+        });
+      }
+    });
+  } else {
+    showToast("No data available to export.", "warning");
+    return;
+  }
+  
+  const encodedUri = encodeURI(csvContent);
+  const link = document.createElement("a");
+  link.setAttribute("href", encodedUri);
+  link.setAttribute("download", filename);
+  document.body.appendChild(link);
+  link.click();
+  document.body.removeChild(link);
+  showToast(`CSV data exported: ${filename}`, "success");
 }
 
 // ===== WAR COUNTDOWN =====
@@ -356,6 +423,86 @@ function getSkeletonHTML() {
   `;
 }
 
+// Event Delegation setup
+function setupEventDelegation() {
+  document.addEventListener('click', (e) => {
+    // Handle dropdown toggles
+    const exportDropBtn = e.target.closest('#export-drop-btn');
+    const dropdownContent = document.getElementById('export-dropdown-menu');
+    if (exportDropBtn && dropdownContent) {
+      e.stopPropagation();
+      dropdownContent.classList.toggle('show');
+      return;
+    } else if (dropdownContent && !e.target.closest('.export-dropdown')) {
+      dropdownContent.classList.remove('show');
+    }
+
+    const target = e.target.closest('[data-action]');
+    if (!target) return;
+    const action = target.dataset.action;
+    
+    switch(action) {
+      case 'load-player':
+        quickLoadBookmark('player', target.dataset.tag);
+        break;
+      case 'load-clan':
+        quickLoadBookmark('clan', target.dataset.tag);
+        break;
+      case 'toggle-favorite':
+        toggleFavorite(target.dataset.type, target.dataset.tag, target.dataset.name);
+        break;
+      case 'set-home-clan':
+        state.homeClanTag = target.dataset.tag;
+        localStorage.setItem('coc_home_clan', target.dataset.tag);
+        showToast('Home Clan updated!', 'success');
+        loadOverviewClan(target.dataset.tag);
+        break;
+      case 'export-clipboard':
+        exportToClipboard(target.dataset.type);
+        break;
+      case 'export-csv':
+        exportToCSV(target.dataset.type);
+        break;
+      case 'vote-layout':
+        voteLayout(parseInt(target.dataset.id));
+        break;
+      case 'copy-layout-link':
+        copyLayoutLink(target.dataset.link);
+        break;
+      case 'remove-favorite':
+        e.stopPropagation();
+        removeFavorite(parseInt(target.dataset.index), e);
+        break;
+      case 'switch-tab':
+        switchTab(target.dataset.tab);
+        break;
+      case 'reset-home':
+        state.homeClanTag = '';
+        localStorage.removeItem('coc_home_clan');
+        showInitialPlaceholders();
+        break;
+      case 'clear-history':
+        searchHistory.clear(target.dataset.type);
+        document.getElementById(`${target.dataset.inputId}-dropdown`)?.classList.remove('visible');
+        break;
+      case 'select-history-item':
+        const inp = document.getElementById(target.dataset.inputId);
+        if (inp) {
+          inp.value = target.dataset.tag;
+          document.getElementById(`${target.dataset.inputId}-dropdown`)?.classList.remove('visible');
+          inp.closest('form')?.dispatchEvent(new Event('submit', { cancelable: true }));
+        }
+        break;
+      case 'filter-layouts':
+        state.layoutFilterType = target.dataset.filter;
+        document.querySelectorAll('.layout-filter-btn').forEach(btn => {
+          btn.classList.toggle('active', btn.dataset.filter === state.layoutFilterType);
+        });
+        renderLayoutGallery();
+        break;
+    }
+  });
+}
 
 // DOM Elements
 document.addEventListener('DOMContentLoaded', () => {
@@ -367,6 +514,10 @@ function initApp() {
   setupSettingsModal();
   setupSearchForms();
   renderFavorites();
+  setupEventDelegation();
+  setupLayoutGallery();
+  setupPlayerCompare();
+  setupClanNameSearch();
   
   // Set default state values to UI
   document.getElementById('api-token-input').value = state.apiToken;
@@ -426,9 +577,11 @@ function initApp() {
       case '2': switchTab('clan'); break;
       case '3': switchTab('player'); break;
       case '4': switchTab('war'); break;
-      case '5': switchTab('compare'); break;
-      case '6': switchTab('leaderboards'); break;
-      case '7': switchTab('capital'); break;
+      case '5': switchTab('leaderboards'); break;
+      case '6': switchTab('capital'); break;
+      case '7': switchTab('layouts'); break;
+      case '8': switchTab('compare'); break;
+      case '9': switchTab('player-compare'); break;
       case '/':
         e.preventDefault();
         const activePane = document.querySelector('.view-pane.active');
@@ -448,7 +601,11 @@ function initApp() {
   document.getElementById('drawer-close')?.addEventListener('click', closePayloadInspector);
 
   // Initialize page components
-  showInitialPlaceholders();
+  if (state.homeClanTag) {
+    loadOverviewClan(state.homeClanTag);
+  } else {
+    showInitialPlaceholders();
+  }
 }
 
 // ===== API LATENCY & HEALTH MONITOR =====
@@ -665,11 +822,11 @@ function renderFavorites() {
   
   container.innerHTML = state.favorites.map((fav, index) => `
     <li class="favorite-item" data-index="${index}">
-      <div class="fav-details" onclick="quickLoadBookmark('${escapeHtml(fav.type)}', '${escapeHtml(fav.tag)}')">
+      <div class="fav-details" data-action="${fav.type === 'clan' ? 'load-clan' : 'load-player'}" data-tag="${escapeHtml(fav.tag)}">
         <strong>${escapeHtml(fav.name)}</strong>
         <small style="color: var(--clash-gold); font-size: 10px;">${escapeHtml(fav.tag)}</small>
       </div>
-      <i class="fas fa-trash delete-fav" onclick="removeFavorite(${index}, event)"></i>
+      <i class="fas fa-trash delete-fav" data-action="remove-favorite" data-index="${index}"></i>
     </li>
   `).join('');
 }
@@ -708,7 +865,6 @@ function toggleFavorite(type, tag, name) {
 }
 
 function removeFavorite(index, event) {
-  event.stopPropagation();
   state.favorites.splice(index, 1);
   localStorage.setItem('coc_favorites', JSON.stringify(state.favorites));
   renderFavorites();
@@ -778,7 +934,7 @@ function setupSearchForms() {
     });
   }
 
-  // Search history dropdowns
+  // Search history dropdowns with debouncing
   ['clan-tag-input', 'player-tag-input', 'war-clan-tag-input'].forEach(inputId => {
     const type = inputId.includes('player') ? 'player' : 'clan';
     const input = document.getElementById(inputId);
@@ -789,6 +945,16 @@ function setupSearchForms() {
           document.getElementById(`${inputId}-dropdown`)?.classList.remove('visible');
         }, 200);
       });
+      // Add debounce input validation visually or dynamically if needed
+      input.addEventListener('input', debounce((e) => {
+        const val = e.target.value.trim();
+        if (val && !val.startsWith('#') && val.length > 2 && !isNaN(val.charAt(0)) === false) {
+          // Just format prefix helper if user forgot #
+          if (/^[A-Z0-9]+$/i.test(val)) {
+            // Can help highlight
+          }
+        }
+      }, 300));
     }
   });
 }
@@ -811,19 +977,23 @@ async function fetchCocData(endpoint) {
 
     // Handle Gold Pass
     if (endpoint.startsWith('/goldpass/')) {
-      result = JSON.parse(JSON.stringify(window.MOCK_GOLD_PASS));
+      result = structuredClone(window.MOCK_DATA.goldPass || window.MOCK_GOLD_PASS);
     }
     // Handle Locations & rankings
     else if (endpoint.startsWith('/locations')) {
       const parts = endpoint.split('/');
       if (parts.length === 2) {
-        result = { items: JSON.parse(JSON.stringify(window.MOCK_LEADERBOARDS.locations)) };
+        result = { items: structuredClone(window.MOCK_DATA.leaderboards.locations || window.MOCK_LEADERBOARDS.locations) };
       } else {
         const locId = parts[2];
         const type = parts[4]; // e.g. "clans" or "players"
-        const data = window.MOCK_LEADERBOARDS[type]?.[locId] || window.MOCK_LEADERBOARDS[type]?.[32000006] || [];
-        result = { items: JSON.parse(JSON.stringify(data)) };
+        const data = window.MOCK_DATA.leaderboards[type]?.[locId] || window.MOCK_DATA.leaderboards[type]?.[32000006] || window.MOCK_LEADERBOARDS[type]?.[locId] || [];
+        result = { items: structuredClone(data) };
       }
+    }
+    // Handle Clan Search endpoint
+    else if (endpoint.startsWith('/clans?') || endpoint.startsWith('/clans%3F')) {
+      result = structuredClone(window.MOCK_DATA.clanSearchResults || window.MOCK_CLAN_SEARCH_RESULTS || { items: Object.values(window.MOCK_CLANS) });
     }
     // Handle Clan & CurrentWar routing
     else if (endpoint.startsWith('/clans/')) {
@@ -832,43 +1002,53 @@ async function fetchCocData(endpoint) {
       
       // If requesting active war
       if (parts[3] === 'currentwar') {
-        if (window.MOCK_WARS && window.MOCK_WARS[tag]) {
-          result = JSON.parse(JSON.stringify(window.MOCK_WARS[tag]));
+        if (window.MOCK_DATA.wars && window.MOCK_DATA.wars[tag]) {
+          result = structuredClone(window.MOCK_DATA.wars[tag]);
+        } else if (window.MOCK_WARS && window.MOCK_WARS[tag]) {
+          result = structuredClone(window.MOCK_WARS[tag]);
         } else {
-          result = JSON.parse(JSON.stringify(Object.values(window.MOCK_WARS)[0]));
+          result = structuredClone(Object.values(window.MOCK_WARS)[0]);
         }
       }
       // If requesting war league group (CWL)
       else if (parts[3] === 'warleague' && parts[4] === 'group') {
-        if (window.MOCK_CWL && window.MOCK_CWL[tag]) {
-          result = JSON.parse(JSON.stringify(window.MOCK_CWL[tag]));
+        if (window.MOCK_DATA.cwl && window.MOCK_DATA.cwl[tag]) {
+          result = structuredClone(window.MOCK_DATA.cwl[tag]);
+        } else if (window.MOCK_CWL && window.MOCK_CWL[tag]) {
+          result = structuredClone(window.MOCK_CWL[tag]);
         } else {
-          result = JSON.parse(JSON.stringify(Object.values(window.MOCK_CWL)[0]));
+          result = structuredClone(Object.values(window.MOCK_CWL)[0]);
         }
       }
       // If requesting war logs
       else if (parts[3] === 'warlog') {
-        if (window.MOCK_WAR_LOG && window.MOCK_WAR_LOG[tag]) {
-          result = JSON.parse(JSON.stringify(window.MOCK_WAR_LOG[tag]));
+        if (window.MOCK_DATA.warLog && window.MOCK_DATA.warLog[tag]) {
+          result = structuredClone(window.MOCK_DATA.warLog[tag]);
+        } else if (window.MOCK_WAR_LOG && window.MOCK_WAR_LOG[tag]) {
+          result = structuredClone(window.MOCK_WAR_LOG[tag]);
         } else {
-          result = JSON.parse(JSON.stringify(Object.values(window.MOCK_WAR_LOG)[0]));
+          result = structuredClone(Object.values(window.MOCK_WAR_LOG)[0]);
         }
       }
       // If requesting capital raids log
       else if (parts[3] === 'capitalraidlog') {
-        if (window.MOCK_CAPITAL_RAIDS && window.MOCK_CAPITAL_RAIDS[tag]) {
-          result = JSON.parse(JSON.stringify(window.MOCK_CAPITAL_RAIDS[tag]));
+        if (window.MOCK_DATA.capitalRaids && window.MOCK_DATA.capitalRaids[tag]) {
+          result = structuredClone(window.MOCK_DATA.capitalRaids[tag]);
+        } else if (window.MOCK_CAPITAL_RAIDS && window.MOCK_CAPITAL_RAIDS[tag]) {
+          result = structuredClone(window.MOCK_CAPITAL_RAIDS[tag]);
         } else {
-          result = JSON.parse(JSON.stringify(Object.values(window.MOCK_CAPITAL_RAIDS)[0]));
+          result = structuredClone(Object.values(window.MOCK_CAPITAL_RAIDS)[0]);
         }
       }
       // Requesting clan itself
       else {
-        if (window.MOCK_CLANS && window.MOCK_CLANS[tag]) {
-          result = JSON.parse(JSON.stringify(window.MOCK_CLANS[tag]));
+        if (window.MOCK_DATA.clans && window.MOCK_DATA.clans[tag]) {
+          result = structuredClone(window.MOCK_DATA.clans[tag]);
+        } else if (window.MOCK_CLANS && window.MOCK_CLANS[tag]) {
+          result = structuredClone(window.MOCK_CLANS[tag]);
         } else {
           const template = Object.values(window.MOCK_CLANS)[0];
-          const copy = JSON.parse(JSON.stringify(template));
+          const copy = structuredClone(template);
           copy.tag = tag;
           copy.name = `Clan ${tag.replace('#', '')}`;
           result = copy;
@@ -878,11 +1058,13 @@ async function fetchCocData(endpoint) {
     // Handle Player profiling routing
     else if (endpoint.startsWith('/players/')) {
       const tag = endpoint.split('/')[2];
-      if (window.MOCK_PLAYERS && window.MOCK_PLAYERS[tag]) {
-        result = JSON.parse(JSON.stringify(window.MOCK_PLAYERS[tag]));
+      if (window.MOCK_DATA.players && window.MOCK_DATA.players[tag]) {
+        result = structuredClone(window.MOCK_DATA.players[tag]);
+      } else if (window.MOCK_PLAYERS && window.MOCK_PLAYERS[tag]) {
+        result = structuredClone(window.MOCK_PLAYERS[tag]);
       } else {
         const template = Object.values(window.MOCK_PLAYERS)[0];
-        const copy = JSON.parse(JSON.stringify(template));
+        const copy = structuredClone(template);
         copy.tag = tag;
         copy.name = `Clasher ${tag.replace('#', '')}`;
         result = copy;
@@ -948,7 +1130,7 @@ async function loadClanData(tag) {
     // Auto load war data
     await loadWarData(tag);
   } catch (err) {
-    container.innerHTML = `<div class="placeholder-state"><i class="fas fa-times-circle"></i><p>Error: ${escapeHtml(err.message)}</p><button class="primary-btn mt-16" onclick="loadClanData('${escapeHtml(tag)}')">Retry</button></div>`;
+    container.innerHTML = `<div class="placeholder-state"><i class="fas fa-times-circle"></i><p>Error: ${escapeHtml(err.message)}</p><button class="primary-btn mt-16" data-action="load-clan" data-tag="${escapeHtml(tag)}">Retry</button></div>`;
   }
 }
 
@@ -966,7 +1148,7 @@ async function loadPlayerData(tag) {
     searchHistory.add('player', tag, player.name);
     renderPlayer(player);
   } catch (err) {
-    container.innerHTML = `<div class="placeholder-state"><i class="fas fa-times-circle"></i><p>Error: ${escapeHtml(err.message)}</p><button class="primary-btn mt-16" onclick="loadPlayerData('${escapeHtml(tag)}')">Retry</button></div>`;
+    container.innerHTML = `<div class="placeholder-state"><i class="fas fa-times-circle"></i><p>Error: ${escapeHtml(err.message)}</p><button class="primary-btn mt-16" data-action="load-player" data-tag="${escapeHtml(tag)}">Retry</button></div>`;
   }
 }
 
@@ -991,7 +1173,7 @@ async function loadWarData(clanTag) {
     loadCWLData(clanTag);
     loadWarHistoryData(clanTag);
   } catch (err) {
-    container.innerHTML = `<div class="placeholder-state"><i class="fas fa-times-circle"></i><p>Error loading war log: ${escapeHtml(err.message)}</p><button class="primary-btn mt-16" onclick="loadWarData('${escapeHtml(clanTag)}')">Retry</button></div>`;
+    container.innerHTML = `<div class="placeholder-state"><i class="fas fa-times-circle"></i><p>Error loading war log: ${escapeHtml(err.message)}</p><button class="primary-btn mt-16" data-action="load-clan" data-tag="${escapeHtml(clanTag)}">Retry</button></div>`;
   }
 }
 
@@ -1000,69 +1182,25 @@ function showInitialPlaceholders() {
   document.getElementById('clan-results-container').innerHTML = `
     <div class="placeholder-state">
       <i class="fas fa-users" style="font-size: 48px; color: var(--clash-gold); opacity: 0.6; margin-bottom: 12px;"></i>
-      <p style="font-size: 15px; color: var(--text-muted);">Enter your Clan Tag on the left side menu to inspect live statistics.</p>
+      <p style="font-size: 15px; color: var(--text-muted);">Enter a Clan Tag on the left to explore the roster & metrics.</p>
     </div>
   `;
-
   document.getElementById('player-results-container').innerHTML = `
     <div class="placeholder-state">
-      <i class="fas fa-user-shield" style="font-size: 48px; color: var(--clash-elixir); opacity: 0.6; margin-bottom: 12px;"></i>
-      <p style="font-size: 15px; color: var(--text-muted);">Search your Player Tag on the left to inspect levels, equipment, and achievements.</p>
+      <i class="fas fa-user-shield" style="font-size: 48px; color: var(--clash-gold); opacity: 0.6; margin-bottom: 12px;"></i>
+      <p style="font-size: 15px; color: var(--text-muted);">Search a player tag to profile their army levels & achievements.</p>
     </div>
   `;
-
   document.getElementById('war-results-container').innerHTML = `
     <div class="placeholder-state">
-      <i class="fas fa-fire" style="font-size: 48px; color: var(--clash-dark-elixir); opacity: 0.6; margin-bottom: 12px;"></i>
-      <p style="font-size: 15px; color: var(--text-muted);">Search a Clan Tag on the left to track active war scoreboards.</p>
-    </div>
-  `;
-
-  // Handle Overview Panel
-  const overviewContainer = document.querySelector('#overview-pane .explorer-grid');
-  
-  if (state.homeClanTag) {
-    loadOverviewClan(state.homeClanTag);
-    return;
-  }
-
-  // Welcome state prompting home clan setup
-  overviewContainer.innerHTML = `
-    <div class="results-card" style="grid-column: span 2; min-height: auto; align-items: center; justify-content: center; padding: 40px; text-align: center;">
-      <i class="fas fa-home" style="font-size: 52px; color: var(--clash-gold); margin-bottom: 16px;"></i>
-      <h3 style="font-size: 20px; font-weight: 700; margin-bottom: 8px;">Configure Your Command Center</h3>
-      <p style="color: var(--text-muted); max-width: 480px; line-height: 1.6; margin-bottom: 24px;">
-        To establish a permanent homepage, set up a default home clan. Simply type your Clan Tag below and save!
-      </p>
-      <div style="display: flex; gap: 8px; width: 100%; max-width: 400px; margin-bottom: 12px;">
-        <input type="text" id="home-tag-setup-input" placeholder="e.g. #2PP2PP2P" style="flex: 1; background: var(--bg-stone-dark); border: 1px solid var(--border-subtle); border-radius: 8px; padding: 10px; color: #fff; text-transform: uppercase;">
-        <button class="primary-btn" onclick="saveHomeClan()" style="padding: 10px 20px; border-radius: 8px; font-size: 13px;">Set Home</button>
-      </div>
-      <div style="font-size: 12px; color: var(--text-muted);">Don't have a token? Set up your credentials under <strong>API Settings</strong>.</div>
+      <i class="fas fa-fire" style="font-size: 48px; color: var(--clash-gold); opacity: 0.6; margin-bottom: 12px;"></i>
+      <p style="font-size: 15px; color: var(--text-muted);">Track active clan wars & feed events in real-time.</p>
     </div>
   `;
 }
 
-function saveHomeClan() {
-  const tagInput = document.getElementById('home-tag-setup-input');
-  if (!tagInput) return;
-  const tag = tagInput.value.trim().toUpperCase();
-  if (!tag) return;
-
-  state.homeClanTag = tag;
-  localStorage.setItem('coc_home_clan', tag);
-  loadOverviewClan(tag);
-}
-
-// Load Home Clan on Overview
+// ===== OVERVIEW / COMMAND CENTER PANEL =====
 async function loadOverviewClan(tag) {
-  const overviewContainer = document.querySelector('#overview-pane .explorer-grid');
-  overviewContainer.innerHTML = `
-    <div class="results-card" style="grid-column: span 2; min-height: auto; align-items: center; justify-content: center; padding: 40px;">
-      ${getSkeletonHTML()}
-    </div>
-  `;
-
   try {
     const clan = await fetchCocData(`/clans/${tag}`);
     if (!clan) {
@@ -1071,1133 +1209,916 @@ async function loadOverviewClan(tag) {
       showInitialPlaceholders();
       return;
     }
-
-    overviewContainer.innerHTML = `
-      <!-- Featured Clan Summary -->
-      <div class="results-card" style="min-height: auto;">
-        <div style="display: flex; align-items: center; justify-content: space-between; border-bottom: 1px solid var(--border-subtle); padding-bottom: 16px;">
-          <div style="display: flex; align-items: center; gap: 16px;">
-            <img src="${clan.badgeUrls.medium}" alt="badge" style="width: 48px; height: 48px; object-fit: contain;"/>
-            <div>
-              <h3 style="font-size: 20px; font-weight: 700;">${escapeHtml(clan.name)}</h3>
-              <span class="level-tag" style="font-size: 11px; padding: 2px 6px;">Level ${clan.clanLevel}</span>
-            </div>
-          </div>
-          <button class="config-btn" onclick="state.homeClanTag=''; localStorage.removeItem('coc_home_clan'); showInitialPlaceholders();" style="font-size: 11px; padding: 4px 10px; border-radius: 6px; color: var(--clash-elixir);">Reset Home</button>
-        </div>
-        <p style="color: var(--text-muted); line-height: 1.5; font-size: 14px; margin-top: 10px;">${escapeHtml(clan.description || 'No description provided.')}</p>
-        
-        <div class="stats-row" style="margin-top: 16px;">
-          <div class="stat-card gold-glow" style="padding: 16px; background: var(--bg-stone-dark);">
-            <div class="stat-icon gold" style="width: 40px; height: 40px; font-size: 16px;"><i class="fas fa-trophy"></i></div>
-            <div class="stat-details">
-              <h4 style="font-size: 12px;">Total Trophies</h4>
-              <p style="font-size: 18px;" id="overview-trophy-val">${clan.clanPoints.toLocaleString()}</p>
-            </div>
-          </div>
-          <div class="stat-card elixir-glow" style="padding: 16px; background: var(--bg-stone-dark);">
-            <div class="stat-icon elixir" style="width: 40px; height: 40px; font-size: 16px;"><i class="fas fa-users"></i></div>
-            <div class="stat-details">
-              <h4 style="font-size: 12px;">Members</h4>
-              <p style="font-size: 18px;">${clan.members} / 50</p>
-            </div>
-          </div>
-          <div class="stat-card dark-glow" style="padding: 16px; background: var(--bg-stone-dark);">
-            <div class="stat-icon dark" style="width: 40px; height: 40px; font-size: 16px;"><i class="fas fa-shield"></i></div>
-            <div class="stat-details">
-              <h4 style="font-size: 12px;">War Wins</h4>
-              <p style="font-size: 18px;" id="overview-warwins-val">${clan.warWins}</p>
-            </div>
-          </div>
-        </div>
-
-        <!-- Playstyle recruitment labels -->
-        ${clan.labels && clan.labels.length > 0 ? `
-          <div class="label-badge-container" style="margin-top: 16px; display: flex; gap: 8px; flex-wrap: wrap;">
-            ${clan.labels.map(l => `
-              <span class="label-badge">
-                <img src="${l.iconUrls.small}" alt="${l.name}"/>
-                ${escapeHtml(l.name)}
-              </span>
-            `).join('')}
-          </div>
-        ` : ''}
-      </div>
-
-      <!-- Overview Analytics Card -->
-      <div class="results-card" style="min-height: auto; justify-content: center; align-items: center; gap: 16px;">
-        <h3 style="font-size: 18px; font-weight: 700; align-self: flex-start; border-bottom: 1px solid var(--border-subtle); padding-bottom: 12px; width: 100%;">Clan League Distribution</h3>
-        <div style="position: relative; width: 100%; height: 200px;">
-          <canvas id="overview-chart"></canvas>
-        </div>
-      </div>
-    `;
-
-    // Animate stat values
-    const trophyEl = document.getElementById('overview-trophy-val');
-    const warsEl = document.getElementById('overview-warwins-val');
-    if (trophyEl) animateValue(trophyEl, 0, clan.clanPoints, 1500);
-    if (warsEl) animateValue(warsEl, 0, clan.warWins, 1200);
-
-    // Render league band graph
-    await loadChartJs();
-    initOverviewChart(clan);
     
-    // Load Battle pass season details
-    loadGoldPassData();
-  } catch (err) {
-    overviewContainer.innerHTML = `
-      <div class="results-card" style="grid-column: span 2; min-height: auto; align-items: center; justify-content: center; padding: 40px; text-align: center;">
-        <i class="fas fa-times-circle" style="font-size: 48px; color: var(--clash-elixir); margin-bottom: 16px;"></i>
-        <h3 style="font-size: 18px; font-weight: 700; margin-bottom: 8px;">Error Loading Home Clan</h3>
-        <p style="color: var(--text-muted); line-height: 1.6; margin-bottom: 16px;">${escapeHtml(err.message)}</p>
-        <button class="config-btn" onclick="state.homeClanTag=''; localStorage.removeItem('coc_home_clan'); showInitialPlaceholders();">Reset Home Clan</button>
-      </div>
-    `;
-  }
-}
+    state.currentClan = clan;
 
-// Canvas vertical gradient generator for ChartJS
-function createVerticalGradient(ctx, colorStart, colorEnd) {
-  const gradient = ctx.createLinearGradient(0, 0, 0, 200);
-  gradient.addColorStop(0, colorStart);
-  gradient.addColorStop(1, colorEnd);
-  return gradient;
-}
+    // Update Overview Header Summary
+    const badgeEl = document.getElementById('overview-clan-badge');
+    const nameEl = document.getElementById('overview-clan-name');
+    const levelEl = document.getElementById('overview-clan-level');
+    const descEl = document.getElementById('overview-clan-desc');
+    const trophiesEl = document.getElementById('overview-trophies');
+    const membersEl = document.getElementById('overview-members-count');
+    const warWinsEl = document.getElementById('overview-war-wins');
+    const labelsEl = document.getElementById('overview-clan-labels');
 
-// Distribution Chart
-function initOverviewChart(clan) {
-  const ctx = document.getElementById('overview-chart').getContext('2d');
-  if (overviewChart) {
-    overviewChart.destroy();
-  }
+    if (badgeEl) badgeEl.src = clan.badgeUrls.medium;
+    if (nameEl) nameEl.textContent = clan.name;
+    if (levelEl) levelEl.textContent = `Level ${clan.clanLevel}`;
+    if (descEl) descEl.textContent = clan.description || 'No description provided by clan leader.';
+    
+    // Animate stats
+    if (trophiesEl) animateValue(trophiesEl, 0, clan.clanPoints || 0, 1200);
+    if (membersEl) membersEl.textContent = `${clan.members} / 50`;
+    if (warWinsEl) animateValue(warWinsEl, 0, clan.warWins || 0, 1000);
 
-  const members = clan.memberList || [];
-  const bands = { '5000+': 0, '4500-4999': 0, '4000-4499': 0, 'Under 4000': 0 };
-  
-  members.forEach(m => {
-    if (m.trophies >= 5000) bands['5000+']++;
-    else if (m.trophies >= 4500) bands['4500-4999']++;
-    else if (m.trophies >= 4000) bands['4000-4499']++;
-    else bands['Under 4000']++;
-  });
-
-  const goldGrad = createVerticalGradient(ctx, 'rgba(255, 224, 102, 0.85)', 'rgba(212, 130, 0, 0.85)');
-  const elixirGrad = createVerticalGradient(ctx, 'rgba(255, 110, 167, 0.85)', 'rgba(181, 19, 87, 0.85)');
-  const darkGrad = createVerticalGradient(ctx, 'rgba(178, 127, 255, 0.85)', 'rgba(82, 12, 174, 0.85)');
-  const mutedGrad = createVerticalGradient(ctx, 'rgba(142, 155, 174, 0.85)', 'rgba(50, 60, 75, 0.85)');
-
-  overviewChart = new Chart(ctx, {
-    type: 'bar',
-    data: {
-      labels: Object.keys(bands),
-      datasets: [{
-        label: 'Members Count',
-        data: Object.values(bands),
-        backgroundColor: [goldGrad, elixirGrad, darkGrad, mutedGrad],
-        borderColor: ['#F5A623', '#EC3B83', '#8B44FD', '#8E9BAE'],
-        borderWidth: 2,
-        borderRadius: 6
-      }]
-    },
-    options: {
-      responsive: true,
-      maintainAspectRatio: false,
-      plugins: {
-        legend: { display: false }
-      },
-      scales: {
-        y: {
-          ticks: { color: '#8E9BAE', stepSize: 1 },
-          grid: { color: 'rgba(255, 255, 255, 0.05)' }
-        },
-        x: {
-          ticks: { color: '#8E9BAE' },
-          grid: { display: false }
-        }
-      }
+    // Populate labels
+    if (labelsEl) {
+      labelsEl.innerHTML = (clan.labels || []).map(l => `
+        <span class="badge-small" style="background: rgba(255,255,255,0.06); border: 1px solid var(--border-subtle); display: flex; align-items: center; gap: 4px; padding: 4px 10px; border-radius: 8px;">
+          <img src="${l.iconUrls.small}" alt="${l.name}" style="width: 14px; height: 14px; object-fit: contain;"/>
+          ${escapeHtml(l.name)}
+        </span>
+      `).join('');
     }
+
+    // Load Chart.js and render the overview chart
+    await loadChartJs();
+    initOverviewChart(clan.memberList);
+
+  } catch (err) {
+    showToast(`Error loading Overview Clan: ${err.message}`, "error");
+  }
+}
+
+function renderActivityHeatmap() {
+  const days = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+  let html = '<div class="heatmap-container">';
+  
+  for (let i = 0; i < 7; i++) {
+    html += `<div class="heatmap-row"><span class="heatmap-label">${days[i]}</span>`;
+    for (let j = 0; j < 24; j++) {
+      // Simulate activity level (0 to 4)
+      const level = Math.floor(Math.pow(Math.random(), 2.2) * 5);
+      html += `<div class="heatmap-cell heatmap-level-${level}" title="Day ${days[i]}, Hour ${j}: Activity Level ${level}"></div>`;
+    }
+    html += '</div>';
+  }
+  
+  html += `
+    <div class="heatmap-legend">
+      <span>Less</span>
+      <div class="heatmap-cell heatmap-level-0"></div>
+      <div class="heatmap-cell heatmap-level-1"></div>
+      <div class="heatmap-cell heatmap-level-2"></div>
+      <div class="heatmap-cell heatmap-level-3"></div>
+      <div class="heatmap-cell heatmap-level-4"></div>
+      <span>More</span>
+    </div>
+  </div>`;
+  
+  return html;
+}
+
+function initOverviewChart(members) {
+  loadChartJs().then(() => {
+    const canvas = document.getElementById('overview-chart');
+    if (!canvas) return;
+    const ctx = canvas.getContext('2d');
+    
+    // Group members by trophy range or league
+    const leaguesCount = {};
+    members.forEach(m => {
+      const name = m.league?.name || 'Unranked';
+      leaguesCount[name] = (leaguesCount[name] || 0) + 1;
+    });
+
+    if (overviewChart) overviewChart.destroy();
+    
+    try {
+      overviewChart = new Chart(ctx, {
+        type: 'bar',
+        data: {
+          labels: Object.keys(leaguesCount),
+          datasets: [{
+            label: 'Player count',
+            data: Object.values(leaguesCount),
+            backgroundColor: 'rgba(245, 166, 35, 0.75)',
+            borderColor: '#f5a623',
+            borderWidth: 1.5,
+            borderRadius: 6
+          }]
+        },
+        options: {
+          responsive: true,
+          maintainAspectRatio: false,
+          plugins: {
+            legend: { display: false },
+            tooltip: {
+              backgroundColor: 'rgba(11, 12, 16, 0.95)',
+              borderColor: 'rgba(255,255,255,0.08)',
+              borderWidth: 1
+            }
+          },
+          scales: {
+            x: {
+              grid: { display: false },
+              ticks: { color: '#a8a8a8', font: { family: 'Outfit', size: 10 } }
+            },
+            y: {
+              grid: { color: 'rgba(255, 255, 255, 0.05)' },
+              ticks: { color: '#a8a8a8', font: { family: 'Outfit', size: 10 } }
+            }
+          }
+        }
+      });
+    } catch(err) {
+      canvas.parentElement.innerHTML = `<p class="text-muted" style="text-align: center; padding-top: 50px;">Chart.js rendering issue. Falling back to data list.</p>`;
+    }
+  }).catch(() => {
+    const canvas = document.getElementById('overviewChartCanvas');
+    if (canvas) canvas.parentElement.innerHTML = `<p class="text-muted" style="text-align: center; padding-top: 50px;">Could not load Chart.js library from CDN.</p>`;
   });
 }
 
-// Clan Renderer
+// ===== CLAN PROFILE PANEL =====
 function renderClan(clan) {
   const container = document.getElementById('clan-results-container');
+  if (!container) return;
+
   const isBookmarked = state.favorites.some(fav => fav.tag === clan.tag);
-  
-  // Sort Roster
-  const sortedMembers = [...(clan.memberList || [])].sort((a, b) => {
-    let aVal = a[state.rosterSortKey];
-    let bVal = b[state.rosterSortKey];
-    
-    if (state.rosterSortKey === 'role') {
-      const order = { 'leader': 4, 'coLeader': 3, 'elder': 2, 'member': 1 };
-      aVal = order[a.role] || 0;
-      bVal = order[b.role] || 0;
-    }
-    
-    if (state.rosterSortDirection === 'asc') {
-      return aVal > bVal ? 1 : -1;
-    } else {
-      return aVal < bVal ? 1 : -1;
-    }
-  });
+  const winRate = ((clan.warWins / (clan.warWins + clan.warLosses || 1)) * 100).toFixed(1);
 
-  const getSortIcon = (key) => {
-    if (state.rosterSortKey === key) {
-      return state.rosterSortDirection === 'asc' ? ' <i class="fas fa-sort-up"></i>' : ' <i class="fas fa-sort-down"></i>';
-    }
-    return ' <i class="fas fa-sort" style="opacity: 0.3;"></i>';
-  };
-
-  let rosterHtml = '';
-  if (sortedMembers.length > 0) {
-    rosterHtml = `
-      <div style="display: flex; align-items: center; justify-content: space-between; margin-top: 32px; border-bottom: 1px solid var(--border-subtle); padding-bottom: 12px;">
-        <h3>Clan Roster & Strategic Grid</h3>
-        <small style="color: var(--text-muted);">Click header to sort: </small>
-        <button class="config-btn" onclick="toggleRosterSort('trophies')" style="padding: 4px 10px; font-size: 12px;">Sort Trophies ${getSortIcon('trophies')}</button>
-      </div>
-      <div class="roster-grid-premium">
-        ${sortedMembers.map(member => {
-          let thLevel = 9;
-          if (member.trophies >= 5000) thLevel = 16;
-          else if (member.trophies >= 4500) thLevel = 15;
-          else if (member.trophies >= 4000) thLevel = 14;
-          else if (member.trophies >= 3200) thLevel = 13;
-          else if (member.trophies >= 2600) thLevel = 12;
-          else if (member.trophies >= 2000) thLevel = 11;
-          else if (member.trophies >= 1500) thLevel = 10;
-          
-          return `
-            <div class="roster-card-premium th-theme-th${thLevel}">
-              <div class="roster-card-header">
-                <span class="rank-badge" style="background: rgba(255,255,255,0.06); font-size: 11px;">#${member.clanRank}</span>
-                <span class="th-badge">TH ${thLevel}</span>
-              </div>
-              <div class="roster-card-member-info" style="margin-top: 8px;">
-                ${member.league && member.league.iconUrls ? `<img class="roster-card-league-icon" src="${member.league.iconUrls.small}" alt="league"/>` : ''}
-                <div>
-                  <strong style="color: var(--text-main); font-size: 15px; cursor: pointer; display: block;" onclick="quickLoadBookmark('player', '${escapeHtml(member.tag)}')">${escapeHtml(member.name)}</strong>
-                  <small style="color: var(--text-muted); font-size: 11px;">${escapeHtml(member.tag)}</small>
-                </div>
-              </div>
-              <div style="margin-top: 8px; display: flex; flex-direction: column; gap: 4px; font-size: 13px;">
-                <div style="display: flex; justify-content: space-between;">
-                  <span style="color: var(--text-muted);">Trophies:</span>
-                  <strong style="color: var(--clash-gold);"><i class="fas fa-trophy"></i> ${member.trophies}</strong>
-                </div>
-                <div style="display: flex; justify-content: space-between;">
-                  <span style="color: var(--text-muted);">Donated:</span>
-                  <span style="color: var(--clash-elixir); font-weight: bold;">${member.donations}</span>
-                </div>
-                <div style="display: flex; justify-content: space-between;">
-                  <span style="color: var(--text-muted);">Received:</span>
-                  <span style="color: var(--clash-dark-elixir); font-weight: bold;">${member.donationsReceived}</span>
-                </div>
-              </div>
-              <div style="margin-top: 12px; display: flex; justify-content: space-between; align-items: center; border-top: 1px solid var(--border-subtle); padding-top: 8px;">
-                <span class="role-tag ${member.role}">${member.role.replace(/([A-Z])/g, ' $1')}</span>
-                <span class="inspect-badge" onclick="quickLoadBookmark('player', '${escapeHtml(member.tag)}')" style="font-size: 11px; padding: 3px 8px; border-radius: 4px; background: rgba(255,255,255,0.06); cursor: pointer; color: var(--clash-gold); font-weight: bold; transition: var(--transition-smooth);">Inspect</span>
-              </div>
-            </div>
-          `;
-        }).join('')}
-      </div>
-    `;
-  }
-
-  // Clan Capital Districts
-  let capitalHtml = '';
-  if (clan.clanCapital && clan.clanCapital.districts) {
-    capitalHtml = `
-      <div style="margin-top: 32px;">
-        <h3>Clan Capital Hall (Level ${clan.clanCapital.capitalHallLevel})</h3>
-        <div class="capital-grid">
-          ${clan.clanCapital.districts.map(d => `
-            <div class="capital-item">
-              <div class="capital-item-title">${escapeHtml(d.name)}</div>
-              <span class="level-tag" style="font-size: 11px; padding: 2px 6px; background: var(--clash-dark-elixir-gradient); color: #fff;">LVL ${d.districtHallLevel}</span>
-            </div>
-          `).join('')}
-        </div>
-      </div>
-    `;
-  }
+  // Group members into trophies
+  const th16Count = clan.memberList.filter(m => m.expLevel > 200).length; // Simulated TH metrics safely
+  const legendPlayers = clan.memberList.filter(m => m.league?.name === 'Legend League').length;
 
   container.innerHTML = `
-    <div class="detail-header">
-      <div class="badge-lg">
-        <img src="${clan.badgeUrls.medium}" alt="badge"/>
-      </div>
-      <div class="header-info" style="flex: 1;">
-        <h2 style="display: flex; align-items: center; justify-content: space-between;">
-          <span>${escapeHtml(clan.name)} <span class="level-tag">LVL ${clan.clanLevel}</span></span>
-          <div style="display: flex; gap: 8px;">
-            <button class="export-btn" onclick="exportToClipboard('clan')"><i class="fas fa-share-alt"></i> Share</button>
-            <button class="config-btn" onclick="state.homeClanTag='${escapeHtml(clan.tag)}'; localStorage.setItem('coc_home_clan', '${escapeHtml(clan.tag)}'); showToast('Home Clan updated!', 'success');" style="font-size: 12px; padding: 6px 12px; border-radius: 8px;">🏠 Set Home</button>
-            <button id="clan-bookmark-btn" class="bookmark-btn ${isBookmarked ? 'active' : ''}" onclick="toggleFavorite('clan', '${escapeHtml(clan.tag)}', '${escapeHtml(clan.name)}')">
-              <i class="${isBookmarked ? 'fas' : 'far'} fa-star"></i>
-            </button>
+    <div style="display: flex; flex-direction: column; gap: 24px;">
+      <!-- Clan Profile Header Card -->
+      <div style="display: flex; align-items: center; justify-content: space-between; border-bottom: 1px solid var(--border-subtle); padding-bottom: 20px; flex-wrap: wrap; gap: 16px;">
+        <div style="display: flex; align-items: center; gap: 16px;">
+          <img src="${clan.badgeUrls.medium}" alt="badge" style="width: 56px; height: 56px; object-fit: contain;"/>
+          <div>
+            <h2 class="gold-gradient-text" style="font-size: 24px; font-weight: 800; margin: 0;">${escapeHtml(clan.name)}</h2>
+            <div style="display: flex; gap: 8px; align-items: center; font-size: 13px; color: var(--text-muted); margin-top: 4px;">
+              <span>LVL ${clan.clanLevel}</span>
+              <span>&bull;</span>
+              <span>${escapeHtml(clan.tag)}</span>
+              <span>&bull;</span>
+              <span>${clan.members}/50 Members</span>
+            </div>
           </div>
-        </h2>
-        <p>${escapeHtml(clan.tag)} &bull; ${escapeHtml(clan.type.replace(/([A-Z])/g, ' $1'))} &bull; ${clan.members} members</p>
-      </div>
-    </div>
-    
-    <div class="stats-row">
-      <div class="stat-card gold-glow">
-        <div class="stat-icon gold"><i class="fas fa-trophy"></i></div>
-        <div class="stat-details">
-          <h4>Clan Trophies</h4>
-          <p>${clan.clanPoints ? clan.clanPoints.toLocaleString() : 0}</p>
         </div>
-      </div>
-      <div class="stat-card elixir-glow">
-        <div class="stat-icon elixir"><i class="fas fa-swords"></i></div>
-        <div class="stat-details">
-          <h4>War Record</h4>
-          <p>${clan.warWins}W / ${clan.warLosses}L</p>
-        </div>
-      </div>
-      <div class="stat-card dark-glow">
-        <div class="stat-icon dark"><i class="fas fa-fire"></i></div>
-        <div class="stat-details">
-          <h4>Win Streak</h4>
-          <p>${clan.warWinStreak || 0}</p>
-        </div>
-      </div>
-    </div>
 
-    <!-- Clan Roster Analytics Chart -->
-    <div style="margin-top: 32px;">
-      <h3>Clan Donation Ratios</h3>
-      <div style="position: relative; width: 100%; height: 220px; margin-top: 16px;">
-        <canvas id="clan-chart"></canvas>
+        <div style="display: flex; gap: 8px;">
+          <button id="clan-bookmark-btn" class="bookmark-btn ${isBookmarked ? 'active' : ''}" data-action="toggle-favorite" data-type="clan" data-tag="${escapeHtml(clan.tag)}" data-name="${escapeHtml(clan.name)}">
+            <i class="${isBookmarked ? 'fas' : 'far'} fa-star"></i> Bookmarks
+          </button>
+          <button class="primary-btn" data-action="set-home-clan" data-tag="${escapeHtml(clan.tag)}">
+            <i class="fas fa-home"></i> Set Home
+          </button>
+          
+          <div class="export-dropdown">
+            <button class="export-btn" id="export-drop-btn">
+              <i class="fas fa-download"></i> Export Data
+            </button>
+            <div class="export-dropdown-content" id="export-dropdown-menu">
+              <button class="export-dropdown-item" data-action="export-clipboard" data-type="clan">
+                <i class="fas fa-copy"></i> Clipboard
+              </button>
+              <button class="export-dropdown-item" data-action="export-csv" data-type="clan">
+                <i class="fas fa-file-csv"></i> CSV File
+              </button>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- General Stats row -->
+      <div class="stats-row">
+        <div class="stat-card" style="padding: 16px; background: var(--bg-stone-dark);">
+          <div class="stat-icon gold" style="width: 44px; height: 44px; font-size: 16px;"><i class="fas fa-trophy"></i></div>
+          <div class="stat-details">
+            <h4 style="font-size: 11px;">Points</h4>
+            <p style="font-size: 18px;">${clan.clanPoints?.toLocaleString() || 0}</p>
+          </div>
+        </div>
+        <div class="stat-card" style="padding: 16px; background: var(--bg-stone-dark);">
+          <div class="stat-icon elixir" style="width: 44px; height: 44px; font-size: 16px;"><i class="fas fa-shield-alt"></i></div>
+          <div class="stat-details">
+            <h4 style="font-size: 11px;">CWL Tier</h4>
+            <p style="font-size: 18px;">${clan.warLeague?.name || 'Unranked'}</p>
+          </div>
+        </div>
+        <div class="stat-card" style="padding: 16px; background: var(--bg-stone-dark);">
+          <div class="stat-icon dark" style="width: 44px; height: 44px; font-size: 16px;"><i class="fas fa-chart-line"></i></div>
+          <div class="stat-details">
+            <h4 style="font-size: 11px;">War Win Rate</h4>
+            <p style="font-size: 18px;">${winRate}%</p>
+          </div>
+        </div>
+      </div>
+
+      <!-- Roster density graph & quick stats -->
+      <div class="explorer-grid" style="grid-template-columns: 1fr 1.6fr; gap: 24px;">
+        <div class="results-card">
+          <h3>Command Intel</h3>
+          <div style="display: flex; flex-direction: column; gap: 14px; margin-top: 16px;">
+            <div class="flex-between border-bottom-subtle pb-8">
+              <span style="font-size: 13px; color: var(--text-muted);">Legend League Players</span>
+              <strong style="color: var(--clash-gold); font-size: 15px;">${legendPlayers}</strong>
+            </div>
+            <div class="flex-between border-bottom-subtle pb-8">
+              <span style="font-size: 13px; color: var(--text-muted);">Elite Exp Level Players</span>
+              <strong style="color: var(--text-main); font-size: 15px;">${th16Count}</strong>
+            </div>
+            <div class="flex-between">
+              <span style="font-size: 13px; color: var(--text-muted);">Required Trophies</span>
+              <strong style="color: var(--text-main); font-size: 15px;">🏆 ${clan.requiredTrophies || 0}</strong>
+            </div>
+          </div>
+        </div>
+        <div class="results-card">
+          <h3>📈 Trophies Density Density</h3>
+          <div class="chart-container-responsive mt-12">
+            <canvas id="clanChartCanvas"></canvas>
+          </div>
+        </div>
+      </div>
+
+      <!-- Roster table listing -->
+      <div class="results-card mt-8">
+        <div class="section-header">
+          <h3>🛡️ Active Clan Roster Roster</h3>
+          <span style="font-size: 12px; color: var(--text-muted);">Click on any member to explore their full profile</span>
+        </div>
+        <div style="overflow-x: auto; margin-top: 16px;">
+          <table class="roster-table" style="width: 100%; border-collapse: collapse; font-size: 13px;">
+            <thead>
+              <tr style="border-bottom: 2px solid var(--border-subtle); color: var(--text-muted); text-align: left;">
+                <th style="padding: 10px 14px;">Rank</th>
+                <th style="padding: 10px 14px;">Player Name</th>
+                <th style="padding: 10px 14px;">Exp Lvl</th>
+                <th style="padding: 10px 14px;">Role</th>
+                <th style="padding: 10px 14px;">Donations</th>
+                <th style="padding: 10px 14px; text-align: right;">Trophies</th>
+              </tr>
+            </thead>
+            <tbody>
+              ${clan.memberList.map((m, index) => {
+                let roleLabel = m.role === 'leader' ? 'Leader' : m.role === 'coLeader' ? 'Co-Leader' : m.role === 'elder' ? 'Elder' : 'Member';
+                return `
+                  <tr class="roster-row" data-action="load-player" data-tag="${escapeHtml(m.tag)}" style="border-bottom: 1px solid var(--border-subtle); cursor: pointer; transition: var(--transition-smooth);">
+                    <td style="padding: 12px 14px;"><span class="rank-badge ${index < 3 ? `rank-${index + 1}` : ''}">${index + 1}</span></td>
+                    <td style="padding: 12px 14px;">
+                      <div style="display: flex; align-items: center; gap: 8px;">
+                        <img src="${m.league?.iconUrls?.small || ''}" alt="" style="width: 20px; height: 20px; object-fit: contain;"/>
+                        <strong style="color: var(--text-main);">${escapeHtml(m.name)}</strong>
+                      </div>
+                    </td>
+                    <td style="padding: 12px 14px; color: var(--text-muted);">${m.expLevel}</td>
+                    <td style="padding: 12px 14px; color: var(--text-muted);">${roleLabel}</td>
+                    <td style="padding: 12px 14px; color: var(--text-muted); font-size: 11px;">
+                      <span>Given: ${m.donations}</span> &bull; <span>Rec: ${m.donationsReceived}</span>
+                    </td>
+                    <td style="padding: 12px 14px; text-align: right; font-weight: 700; color: var(--clash-gold);"><i class="fas fa-trophy"></i> ${m.trophies}</td>
+                  </tr>
+                `;
+              }).join('')}
+            </tbody>
+          </table>
+        </div>
       </div>
     </div>
-
-    <div>
-      <h3>Description</h3>
-      <p style="color: var(--text-muted); line-height: 1.6; margin-top: 8px;">${escapeHtml(clan.description || 'No description provided.')}</p>
-      ${clan.labels && clan.labels.length > 0 ? `
-        <div style="margin-top: 12px; display: flex; gap: 8px; flex-wrap: wrap;">
-          ${clan.labels.map(l => `
-            <span class="label-badge">
-              <img src="${l.iconUrls.small}" alt="${l.name}"/>
-              ${escapeHtml(l.name)}
-            </span>
-          `).join('')}
-        </div>
-      ` : ''}
-    </div>
-
-    ${capitalHtml}
-    ${rosterHtml}
   `;
 
-  // Draw Clan Donation Charts
-  loadChartJs().then(() => initClanChart(clan));
+  initClanChart(clan.memberList);
 }
 
-async function initClanChart(clan) {
-  await loadChartJs();
-  const ctx = document.getElementById('clan-chart').getContext('2d');
-  if (clanChart) {
-    clanChart.destroy();
-  }
+function initClanChart(members) {
+  loadChartJs().then(() => {
+    const canvas = document.getElementById('clanChartCanvas');
+    if (!canvas) return;
+    const ctx = canvas.getContext('2d');
 
-  const members = clan.memberList || [];
-  const names = members.map(m => m.name);
-  const donations = members.map(m => m.donations);
-  const received = members.map(m => m.donationsReceived);
+    const top5Players = [...members].sort((a, b) => b.trophies - a.trophies).slice(0, 5);
 
-  const elixirGrad = createVerticalGradient(ctx, 'rgba(255, 110, 167, 0.85)', 'rgba(181, 19, 87, 0.85)');
-  const darkGrad = createVerticalGradient(ctx, 'rgba(178, 127, 255, 0.85)', 'rgba(82, 12, 174, 0.85)');
-
-  clanChart = new Chart(ctx, {
-    type: 'bar',
-    data: {
-      labels: names,
-      datasets: [
-        {
-          label: 'Donations Given',
-          data: donations,
-          backgroundColor: elixirGrad,
-          borderColor: '#EC3B83',
-          borderWidth: 2,
-          borderRadius: 4
+    if (clanChart) clanChart.destroy();
+    
+    try {
+      clanChart = new Chart(ctx, {
+        type: 'doughnut',
+        data: {
+          labels: top5Players.map(p => p.name),
+          datasets: [{
+            data: top5Players.map(p => p.trophies),
+            backgroundColor: [
+              'rgba(245, 166, 35, 0.85)',
+              'rgba(236, 59, 131, 0.85)',
+              'rgba(139, 68, 253, 0.85)',
+              'rgba(74, 219, 134, 0.85)',
+              'rgba(74, 144, 226, 0.85)'
+            ],
+            borderColor: 'rgba(11, 12, 16, 0.95)',
+            borderWidth: 2
+          }]
         },
-        {
-          label: 'Donations Received',
-          data: received,
-          backgroundColor: darkGrad,
-          borderColor: '#8B44FD',
-          borderWidth: 2,
-          borderRadius: 4
+        options: {
+          responsive: true,
+          maintainAspectRatio: false,
+          plugins: {
+            legend: { 
+              position: 'right',
+              labels: { color: '#a8a8a8', font: { family: 'Outfit', size: 10 } }
+            },
+            tooltip: {
+              backgroundColor: 'rgba(11, 12, 16, 0.95)',
+              borderColor: 'rgba(255,255,255,0.08)',
+              borderWidth: 1
+            }
+          }
         }
-      ]
-    },
-    options: {
-      responsive: true,
-      maintainAspectRatio: false,
-      plugins: {
-        legend: { labels: { color: '#8E9BAE' } }
-      },
-      scales: {
-        y: {
-          ticks: { color: '#8E9BAE' },
-          grid: { color: 'rgba(255, 255, 255, 0.05)' }
-        },
-        x: {
-          ticks: { color: '#8E9BAE' },
-          grid: { display: false }
-        }
-      }
+      });
+    } catch(err) {
+      canvas.parentElement.innerHTML = `<p class="text-muted" style="text-align: center; padding-top: 50px;">Chart rendering issue. Falling back to roster list.</p>`;
     }
+  }).catch(() => {
+    const canvas = document.getElementById('clanChartCanvas');
+    if (canvas) canvas.parentElement.innerHTML = `<p class="text-muted" style="text-align: center; padding-top: 50px;">Could not load Chart.js library from CDN.</p>`;
   });
 }
 
-function toggleRosterSort(key) {
-  if (state.rosterSortKey === key) {
-    state.rosterSortDirection = state.rosterSortDirection === 'desc' ? 'asc' : 'desc';
-  } else {
-    state.rosterSortKey = key;
-    state.rosterSortDirection = 'desc';
-  }
-  if (state.currentClan) {
-    renderClan(state.currentClan);
-  }
-}
-
-// Player Renderer
+// ===== PLAYER PROFILE PANEL =====
 function renderPlayer(player) {
   const container = document.getElementById('player-results-container');
+  if (!container) return;
+
   const isBookmarked = state.favorites.some(fav => fav.tag === player.tag);
-  
-  // Hero rendering
-  let heroesHtml = '';
-  if (player.heroes && player.heroes.length > 0) {
-    heroesHtml = `
-      <div style="margin-top: 32px;">
-        <h3>Heroes & Machines</h3>
-        <div class="profile-grid-items" style="margin-top: 16px;">
-          ${player.heroes.map(hero => {
-            const percent = (hero.level / hero.maxLevel) * 100;
-            const barClass = hero.village === 'home' ? 'elixir' : 'gold';
-            return `
-              <div class="card-item">
-                <div class="card-item-title">
-                  <span>${escapeHtml(hero.name)}</span>
-                  <span class="card-item-val">Lvl ${hero.level} / ${hero.maxLevel}</span>
-                </div>
-                <div class="progress-container">
-                  <div class="progress-bar ${barClass}" style="width: ${percent}%"></div>
-                </div>
-              </div>
-            `;
-          }).join('')}
-        </div>
-      </div>
-    `;
-  }
 
-  // Hero Equipment & recommendation room
-  let gearHtml = '';
-  if (player.heroEquipment && player.heroEquipment.length > 0) {
-    gearHtml = `
-      <div style="margin-top: 32px;">
-        <h3>Tactical Gear Room (Hero Equipment)</h3>
-        <div class="profile-grid-items" style="margin-top: 16px;">
-          ${player.heroEquipment.map(eq => `
-            <div class="card-item" style="border-color: rgba(139, 68, 253, 0.15);">
-              <div class="card-item-title">
-                <strong>${escapeHtml(eq.name)}</strong>
-                <span class="card-item-val" style="color: var(--clash-dark-elixir);">Lvl ${eq.level}</span>
-              </div>
-              <small style="color: var(--text-muted);">Assigned: ${escapeHtml(eq.heroName)}</small>
+  let builderBaseHtml = '';
+  if (player.builderHallLevel) {
+    builderBaseHtml = `
+      <div class="mt-32">
+        <h3 class="gold-gradient-text" style="font-size: 18px; font-weight: 800;">🔨 Builder Base Profiler</h3>
+        <div class="stats-row mt-16">
+          <div class="stat-card" style="padding: 16px; background: var(--bg-stone-dark);">
+            <div class="stat-icon gold" style="width: 40px; height: 40px; font-size: 16px;"><i class="fas fa-hammer"></i></div>
+            <div class="stat-details">
+              <h4 style="font-size: 12px;">Builder Hall</h4>
+              <p style="font-size: 18px;">Level ${player.builderHallLevel}</p>
             </div>
-          `).join('')}
-        </div>
-        
-        <!-- Strategy recommendation card -->
-        <div class="recommendation-card">
-          <h4 style="color: var(--clash-gold); font-size: 15px; font-weight: 700; margin-bottom: 6px;">🎯 Meta Tactics Loadout Recommendation</h4>
-          ${player.townHallLevel >= 16 
-            ? `Your Barbarian King is equipped with the <strong>Giant Gauntlet</strong>. In the current TH16 meta, combining this with the <strong>Rage Vial</strong> provides massive splash damage during target townhall breaches under Warden Tome invincibility!`
-            : `To maximize attacks at TH15, pair your Archer Queen's <strong>Invisibility Vial</strong> with the <strong>Healer Puppet</strong> for powerful sustain during critical Queen Charge tactics.`}
-        </div>
-      </div>
-    `;
-  }
-
-  // Troops rendering
-  let troopsHtml = '';
-  if (player.troops && player.troops.length > 0) {
-    const homeTroops = player.troops.filter(t => t.village === 'home');
-    troopsHtml = `
-      <div style="margin-top: 32px;">
-        <h3>Troops & Forces</h3>
-        <div class="profile-grid-items" style="margin-top: 16px;">
-          ${homeTroops.slice(0, 12).map(troop => {
-            const percent = (troop.level / troop.maxLevel) * 100;
-            return `
-              <div class="card-item">
-                <div class="card-item-title">
-                  <span>${escapeHtml(troop.name)}</span>
-                  <span class="card-item-val">Lvl ${troop.level} / ${troop.maxLevel}</span>
-                </div>
-                <div class="progress-container">
-                  <div class="progress-bar elixir" style="width: ${percent}%"></div>
-                </div>
-              </div>
-            `;
-          }).join('')}
-        </div>
-      </div>
-    `;
-  }
-
-  // Spells rendering
-  let spellsHtml = '';
-  if (player.spells && player.spells.length > 0) {
-    spellsHtml = `
-      <div class="mt-32">
-        <h3>Spell Arsenal</h3>
-        <div class="profile-grid-items mt-16">
-          ${player.spells.map(spell => {
-            const percent = (spell.level / spell.maxLevel) * 100;
-            return `
-              <div class="card-item">
-                <div class="card-item-title">
-                  <span>${escapeHtml(spell.name)}</span>
-                  <span class="card-item-val">Lvl ${spell.level} / ${spell.maxLevel}</span>
-                </div>
-                <div class="progress-container">
-                  <div class="progress-bar dark" style="width: ${percent}%"></div>
-                </div>
-              </div>
-            `;
-          }).join('')}
-        </div>
-      </div>
-    `;
-  }
-
-  // Achievements rendering
-  let achievementsHtml = '';
-  if (player.achievements && player.achievements.length > 0) {
-    achievementsHtml = `
-      <div class="mt-32">
-        <h3>Achievements</h3>
-        <div class="achievement-grid">
-          ${player.achievements.map(ach => {
-            const starsHtml = Array(3).fill(0).map((_, i) =>
-              `<i class="${i < ach.stars ? 'fas' : 'far'} fa-star ${i >= ach.stars ? 'empty' : ''}"></i>`
-            ).join('');
-            const progress = ach.target > 0 ? Math.min(100, (ach.value / ach.target) * 100) : 100;
-            return `
-              <div class="achievement-card">
-                <div class="achievement-card-header">
-                  <span class="achievement-card-name">${escapeHtml(ach.name)}</span>
-                  <div class="achievement-stars">${starsHtml}</div>
-                </div>
-                <div class="achievement-info">${escapeHtml(ach.info)}</div>
-                <div class="progress-container">
-                  <div class="progress-bar gold" style="width: ${progress}%"></div>
-                </div>
-                <div class="achievement-value">${ach.value.toLocaleString()} / ${ach.target.toLocaleString()}</div>
-              </div>
-            `;
-          }).join('')}
+          </div>
+          <div class="stat-card" style="padding: 16px; background: var(--bg-stone-dark);">
+            <div class="stat-icon elixir" style="width: 40px; height: 40px; font-size: 16px;"><i class="fas fa-trophy"></i></div>
+            <div class="stat-details">
+              <h4 style="font-size: 12px;">Versus Trophies</h4>
+              <p style="font-size: 18px;">${player.versusTrophies || 0}</p>
+            </div>
+          </div>
+          <div class="stat-card" style="padding: 16px; background: var(--bg-stone-dark);">
+            <div class="stat-icon dark" style="width: 40px; height: 40px; font-size: 16px;"><i class="fas fa-fist-raised"></i></div>
+            <div class="stat-details">
+              <h4 style="font-size: 12px;">Versus Wins</h4>
+              <p style="font-size: 18px;">${player.versusBattleWins || 0}</p>
+            </div>
+          </div>
         </div>
       </div>
     `;
   }
 
   container.innerHTML = `
-    <div class="player-top-layout" style="display: grid; grid-template-columns: 1.5fr 1fr; gap: 24px; align-items: start;">
-      <div style="display: flex; flex-direction: column; gap: 24px;">
-        <div class="detail-header" style="border-bottom: none; padding-bottom: 0;">
-          <div class="badge-lg" style="background: rgba(255,255,255,0.05); border-radius: 16px; padding: 10px; display: flex; align-items: center; justify-content: center;">
-            ${player.league && player.league.iconUrls ? `<img src="${player.league.iconUrls.medium}" alt="league"/>` : '<i class="fas fa-shield" style="font-size: 40px; color: var(--text-muted);"></i>'}
-          </div>
-          <div class="header-info" style="flex: 1;">
-            <h2 style="display: flex; align-items: center; justify-content: space-between;">
-              <span>${escapeHtml(player.name)} <span class="level-tag" style="background: var(--clash-dark-elixir-gradient); color: #fff;">TH ${player.townHallLevel}</span></span>
-              <div style="display: flex; gap: 8px;">
-                <button class="export-btn" onclick="exportToClipboard('player')"><i class="fas fa-share-alt"></i> Share</button>
-                <button id="player-bookmark-btn" class="bookmark-btn ${isBookmarked ? 'active' : ''}" onclick="toggleFavorite('player', '${escapeHtml(player.tag)}', '${escapeHtml(player.name)}')">
-                  <i class="${isBookmarked ? 'fas' : 'far'} fa-star"></i>
-                </button>
-              </div>
-            </h2>
-            <p>${escapeHtml(player.tag)} &bull; Exp Lvl ${player.expLevel} &bull; ${player.role ? escapeHtml(player.role.replace(/([A-Z])/g, ' $1')) : 'Independent'}</p>
-            ${player.labels && player.labels.length > 0 ? `
-              <div style="margin-top: 12px; display: flex; gap: 8px; flex-wrap: wrap;">
-                ${player.labels.map(l => `
-                  <span class="label-badge">
-                    <img src="${l.iconUrls.small}" alt="${l.name}"/>
-                    ${escapeHtml(l.name)}
-                  </span>
-                `).join('')}
-              </div>
-            ` : ''}
+    <div style="display: flex; flex-direction: column; gap: 24px;">
+      <!-- Profile Header Card -->
+      <div style="display: flex; align-items: center; justify-content: space-between; border-bottom: 1px solid var(--border-subtle); padding-bottom: 20px; flex-wrap: wrap; gap: 16px;">
+        <div style="display: flex; align-items: center; gap: 16px;">
+          <img src="${player.league?.iconUrls?.medium || player.league?.iconUrls?.small || ''}" alt="" style="width: 56px; height: 56px; object-fit: contain;"/>
+          <div>
+            <h2 class="gold-gradient-text" style="font-size: 24px; font-weight: 800; margin: 0;">${escapeHtml(player.name)}</h2>
+            <div style="display: flex; gap: 8px; align-items: center; font-size: 13px; color: var(--text-muted); margin-top: 4px;">
+              <span>Town Hall ${player.townHallLevel}</span>
+              <span>&bull;</span>
+              <span>${escapeHtml(player.tag)}</span>
+              <span>&bull;</span>
+              <span style="cursor: pointer;" data-action="load-clan" data-tag="${escapeHtml(player.clan?.tag)}">${escapeHtml(player.clan?.name || 'No Clan')}</span>
+            </div>
           </div>
         </div>
 
-        <div class="stats-row">
-          <div class="stat-card gold-glow">
-            <div class="stat-icon gold"><i class="fas fa-trophy"></i></div>
-            <div class="stat-details">
-              <h4>Trophies</h4>
-              <p>${player.trophies}</p>
-            </div>
+        <div style="display: flex; gap: 8px;">
+          <button id="player-bookmark-btn" class="bookmark-btn ${isBookmarked ? 'active' : ''}" data-action="toggle-favorite" data-type="player" data-tag="${escapeHtml(player.tag)}" data-name="${escapeHtml(player.name)}">
+            <i class="${isBookmarked ? 'fas' : 'far'} fa-star"></i> Bookmarks
+          </button>
+          <button class="export-btn" data-action="export-clipboard" data-type="player">
+            <i class="fas fa-share-alt"></i> Share
+          </button>
+        </div>
+      </div>
+
+      <!-- Core Stats row -->
+      <div class="stats-row">
+        <div class="stat-card" style="padding: 16px; background: var(--bg-stone-dark);">
+          <div class="stat-icon gold" style="width: 44px; height: 44px; font-size: 16px;"><i class="fas fa-trophy"></i></div>
+          <div class="stat-details">
+            <h4 style="font-size: 11px;">Trophies</h4>
+            <p style="font-size: 18px;">${player.trophies?.toLocaleString() || 0}</p>
           </div>
-          <div class="stat-card elixir-glow">
-            <div class="stat-icon elixir"><i class="fas fa-star"></i></div>
-            <div class="stat-details">
-              <h4>War Stars</h4>
-              <p>${player.warStars}</p>
-            </div>
+        </div>
+        <div class="stat-card" style="padding: 16px; background: var(--bg-stone-dark);">
+          <div class="stat-icon elixir" style="width: 44px; height: 44px; font-size: 16px;"><i class="fas fa-star"></i></div>
+          <div class="stat-details">
+            <h4 style="font-size: 11px;">War Stars</h4>
+            <p style="font-size: 18px;">${player.warStars || 0}</p>
           </div>
-          <div class="stat-card dark-glow">
-            <div class="stat-icon dark"><i class="fas fa-hand-holding-heart"></i></div>
-            <div class="stat-details">
-              <h4>Donations</h4>
-              <p>${player.donations || 0}</p>
-            </div>
+        </div>
+        <div class="stat-card" style="padding: 16px; background: var(--bg-stone-dark);">
+          <div class="stat-icon dark" style="width: 44px; height: 44px; font-size: 16px;"><i class="fas fa-award"></i></div>
+          <div class="stat-details">
+            <h4 style="font-size: 11px;">Experience</h4>
+            <p style="font-size: 18px;">Lvl ${player.expLevel}</p>
           </div>
         </div>
       </div>
 
-      <div class="results-card player-radar-card" style="min-height: auto; align-items: center; justify-content: center; padding: 24px;">
-        <h3 style="font-size: 16px; font-weight: 700; align-self: flex-start; margin-bottom: 12px; border-bottom: 1px solid var(--border-subtle); padding-bottom: 8px; width: 100%;">Combat Strengths</h3>
-        <div style="position: relative; width: 100%; height: 260px;">
-          <canvas id="player-radar-chart"></canvas>
+      <!-- Radar comparison / Hero details grid -->
+      <div class="explorer-grid" style="grid-template-columns: 1fr 1.5fr; gap: 24px;">
+        <div class="results-card">
+          <h3>🛡️ Hero Command</h3>
+          <div style="display: flex; flex-direction: column; gap: 12px; margin-top: 16px;">
+            ${(player.heroes || []).map(h => {
+              const pct = (h.level / h.maxLevel) * 100;
+              return `
+                <div>
+                  <div class="flex-between" style="font-size: 12px; margin-bottom: 4px;">
+                    <strong>${escapeHtml(h.name)}</strong>
+                    <span style="color: var(--clash-gold);">LVL ${h.level} / ${h.maxLevel}</span>
+                  </div>
+                  <div style="height: 6px; background: var(--bg-stone-medium); border-radius: 3px; overflow: hidden;">
+                    <div style="width: ${pct}%; height: 100%; background: var(--clash-gold-gradient); border-radius: 3px;"></div>
+                  </div>
+                </div>
+              `;
+            }).join('')}
+          </div>
+        </div>
+
+        <div class="results-card">
+          <h3>📊 Army Strengths Distribution</h3>
+          <div class="chart-container-responsive mt-12">
+            <canvas id="playerRadarCanvas"></canvas>
+          </div>
+        </div>
+      </div>
+
+      <!-- Builder Base details -->
+      ${builderBaseHtml}
+
+      <!-- Troops & Spells list -->
+      <div class="results-card mt-8">
+        <h3>⚔️ Laboratory Research Levels</h3>
+        <div class="explorer-grid mt-16" style="grid-template-columns: 1fr 1fr; gap: 20px;">
+          <div>
+            <h4 style="font-size: 13px; font-weight: 700; color: var(--text-muted); text-transform: uppercase;">Troops</h4>
+            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-top: 10px;">
+              ${(player.troops || []).slice(0, 10).map(t => `
+                <div style="padding: 8px 12px; background: var(--bg-stone-dark); border: 1px solid var(--border-subtle); border-radius: 8px; display: flex; justify-content: space-between; font-size: 12px;">
+                  <span>${escapeHtml(t.name)}</span>
+                  <strong style="color: var(--clash-gold);">Lvl ${t.level}</strong>
+                </div>
+              `).join('')}
+            </div>
+          </div>
+          <div>
+            <h4 style="font-size: 13px; font-weight: 700; color: var(--text-muted); text-transform: uppercase;">Spells</h4>
+            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-top: 10px;">
+              ${(player.spells || []).slice(0, 10).map(s => `
+                <div style="padding: 8px 12px; background: var(--bg-stone-dark); border: 1px solid var(--border-subtle); border-radius: 8px; display: flex; justify-content: space-between; font-size: 12px;">
+                  <span>${escapeHtml(s.name)}</span>
+                  <strong style="color: var(--clash-elixir);">Lvl ${s.level}</strong>
+                </div>
+              `).join('')}
+            </div>
+          </div>
         </div>
       </div>
     </div>
-
-    ${heroesHtml}
-    ${gearHtml}
-    ${troopsHtml}
-    ${spellsHtml}
-    ${achievementsHtml}
   `;
 
-  // Draw dynamic Radar Strength chart!
-  loadChartJs().then(() => initPlayerRadarChart(player));
+  initPlayerRadarChart(player);
 }
 
-async function initPlayerRadarChart(player) {
-  await loadChartJs();
-  const ctx = document.getElementById('player-radar-chart');
-  if (!ctx) return;
-  
-  const warStarsPct = Math.min(100, ((player.warStars || 0) / 1500) * 100);
-  const attackWinsPct = Math.min(100, ((player.attackWins || 0) / 300) * 100);
-  const donationsPct = Math.min(100, (((player.donations || 0) + (player.donationsReceived || 0)) / 5000) * 100);
-  const trophyPct = Math.min(100, ((player.trophies || 0) / 6000) * 100);
-  const defensePct = Math.min(100, ((player.defenseWins || 0) / 150) * 100);
+function initPlayerRadarChart(player) {
+  loadChartJs().then(() => {
+    const canvas = document.getElementById('playerRadarCanvas');
+    if (!canvas) return;
+    const ctx = canvas.getContext('2d');
 
-  new Chart(ctx.getContext('2d'), {
-    type: 'radar',
-    data: {
-      labels: ['War Weight', 'Aggression', 'Activity', 'Trophies', 'Defense'],
-      datasets: [{
-        label: player.name,
-        data: [warStarsPct, attackWinsPct, donationsPct, trophyPct, defensePct],
-        borderColor: '#EC3B83',
-        backgroundColor: 'rgba(236, 59, 131, 0.15)',
-        borderWidth: 2,
-        pointBackgroundColor: '#EC3B83',
-        pointHoverBackgroundColor: '#fff'
-      }]
-    },
-    options: {
-      responsive: true,
-      maintainAspectRatio: false,
-      plugins: {
-        legend: { display: false }
-      },
-      scales: {
-        r: {
-          min: 0,
-          max: 100,
-          grid: { color: 'rgba(255, 255, 255, 0.05)' },
-          angleLines: { color: 'rgba(255, 255, 255, 0.05)' },
-          ticks: { display: false },
-          pointLabels: { color: '#8E9BAE', font: { size: 10, weight: 'bold' } }
-        }
-      }
+    const heroLevels = (player.heroes || []).map(h => h.level);
+    const heroNames = (player.heroes || []).map(h => h.name.replace("Hero", "").trim());
+
+    if (heroLevels.length === 0) {
+      canvas.parentElement.innerHTML = `<p class="text-muted" style="text-align: center; padding-top: 50px;">No hero levels to display on chart.</p>`;
+      return;
     }
+
+    if (overviewChart) {
+      // Re-use reference or destroy safely
+    }
+    
+    try {
+      new Chart(ctx, {
+        type: 'radar',
+        data: {
+          labels: heroNames,
+          datasets: [{
+            label: 'Hero Level',
+            data: heroLevels,
+            backgroundColor: 'rgba(236, 59, 131, 0.2)',
+            borderColor: 'var(--clash-elixir)',
+            pointBackgroundColor: 'var(--clash-gold)',
+            borderWidth: 2
+          }]
+        },
+        options: {
+          responsive: true,
+          maintainAspectRatio: false,
+          plugins: {
+            legend: { display: false }
+          },
+          scales: {
+            r: {
+              angleLines: { color: 'rgba(255, 255, 255, 0.05)' },
+              grid: { color: 'rgba(255, 255, 255, 0.05)' },
+              pointLabels: { color: '#a8a8a8', font: { family: 'Outfit', size: 10 } },
+              ticks: { display: false }
+            }
+          }
+        }
+      });
+    } catch(err) {
+      canvas.parentElement.innerHTML = `<p class="text-muted" style="text-align: center; padding-top: 50px;">Chart rendering issue.</p>`;
+    }
+  }).catch(() => {
+    const canvas = document.getElementById('playerRadarCanvas');
+    if (canvas) canvas.parentElement.innerHTML = `<p class="text-muted" style="text-align: center; padding-top: 50px;">Could not load Chart.js library.</p>`;
   });
 }
 
-// War Renderer
+// ===== WAR HUB & LOGS PANEL =====
 function renderWar(war) {
   const container = document.getElementById('war-results-container');
-  const feedCard = document.getElementById('war-feed-card');
+  if (!container) return;
+
+  const clanStars = war.clan.stars || 0;
+  const oppStars = war.opponent.stars || 0;
   
-  if (!war || war.state === 'notInWar') {
-    container.innerHTML = `<div class="placeholder-state"><i class="fas fa-shield-alt"></i><p>This clan is currently not in an active war.</p></div>`;
-    if (feedCard) feedCard.style.display = 'none';
-    return;
+  let stateLabel = 'Unknown';
+  let stateClass = '';
+  if (war.state === 'preparation') {
+    stateLabel = 'Preparation Day — Scouting Phase';
+    stateClass = 'preparation';
+  } else if (war.state === 'inWar') {
+    stateLabel = 'In Progress — Active Battle';
+    stateClass = 'active';
+  } else if (war.state === 'warEnded') {
+    stateLabel = 'War Ended — Results Final';
+    stateClass = 'ended';
   }
 
-  // Double check properties to avoid nested crashes
-  if (!war.clan || !war.opponent) {
-    container.innerHTML = `<div class="placeholder-state"><i class="fas fa-exclamation-triangle"></i><p>Invalid war state data received.</p></div>`;
-    if (feedCard) feedCard.style.display = 'none';
-    return;
-  }
-
-  // Countdown timer HTML
-  let countdownHtml = '';
-  if (war.endTime) {
-    countdownHtml = `<div class="countdown-timer" id="war-countdown"></div>`;
-  }
-  
   container.innerHTML = `
-    <div class="war-vs-header">
-      <div class="war-clan-side">
-        <img src="${war.clan.badgeUrls ? war.clan.badgeUrls.medium : ''}" alt="clan"/>
-        <h3>${escapeHtml(war.clan.name || 'Unknown')}</h3>
-        <p>LVL ${war.clan.clanLevel || 0}</p>
-        <div class="war-score-row">
-          <div class="war-score-block">
-            <div class="label">Stars</div>
-            <div id="clan-war-stars" class="value stars">${war.clan.stars || 0}</div>
-          </div>
-          <div class="war-score-block">
-            <div class="label">Destruction</div>
-            <div id="clan-war-destruction" class="value">${war.clan.destructionPercentage || 0}%</div>
-          </div>
-          <div class="war-score-block">
-            <div class="label">Attacks</div>
-            <div id="clan-war-attacks" class="value">${war.clan.attacks || 0}</div>
+    <div style="display: flex; flex-direction: column; gap: 24px;">
+      <!-- War Title Block Banner -->
+      <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 16px; border-bottom: 1px solid var(--border-subtle); padding-bottom: 20px;">
+        <div>
+          <h2 class="gold-gradient-text" style="font-size: 24px; font-weight: 800; margin: 0;">⚔️ Clan War Command Hub</h2>
+          <div style="display: flex; gap: 8px; align-items: center; font-size: 13px; color: var(--text-muted); margin-top: 4px;">
+            <span class="badge-small ${stateClass}" style="background: rgba(245,166,35,0.15); color: var(--clash-gold); font-weight: 700;">${stateLabel}</span>
+            <span>&bull;</span>
+            <span>Team Size: ${war.teamSize} vs ${war.teamSize}</span>
           </div>
         </div>
-      </div>
-      
-      <div class="war-vs-badge">VS</div>
-      
-      <div class="war-clan-side">
-        <img src="${war.opponent.badgeUrls ? war.opponent.badgeUrls.medium : ''}" alt="opponent"/>
-        <h3>${escapeHtml(war.opponent.name || 'Unknown')}</h3>
-        <p>LVL ${war.opponent.clanLevel || 0}</p>
-        <div class="war-score-row">
-          <div class="war-score-block">
-            <div class="label">Stars</div>
-            <div id="opponent-war-stars" class="value stars">${war.opponent.stars || 0}</div>
-          </div>
-          <div class="war-score-block">
-            <div class="label">Destruction</div>
-            <div id="opponent-war-destruction" class="value">${war.opponent.destructionPercentage || 0}%</div>
-          </div>
-          <div class="war-score-block">
-            <div class="label">Attacks</div>
-            <div id="opponent-war-attacks" class="value">${war.opponent.attacks || 0}</div>
-          </div>
-        </div>
-      </div>
-    </div>
-    
-    <div style="margin-top: 24px; text-align: center;">
-      <h4 style="color: var(--text-muted);">War Status: <span style="color: var(--clash-gold); font-weight: 700;">In Progress (Active Battle)</span></h4>
-    </div>
-    ${countdownHtml}
 
-    <!-- Tactical War Matchup & Base Optimizer -->
-    <div class="optimizer-card">
-      <div class="optimizer-title">
-        <i class="fas fa-magic"></i>
-        <span>Tactical Matchmaker & Base Optimizer</span>
+        <button class="export-btn" data-action="export-csv" data-type="war">
+          <i class="fas fa-file-csv"></i> Export War Log
+        </button>
       </div>
-      <p style="font-size: 13px; color: var(--text-muted); line-height: 1.5; margin-bottom: 16px;">
-        Analyzing roster weights, base layouts, and combat history to suggest high-probability attack pairings.
-      </p>
-      
-      <div class="optimizer-list">
-        <div class="optimizer-item">
-          <div>
-            <strong style="color: var(--clash-gold);">ClashMaster</strong> <span style="color: var(--text-muted); font-size: 11px;">(TH16)</span>
-            <span style="color: var(--text-muted); margin: 0 8px;">&rarr;</span>
-            <strong>ShadowNinja</strong> <span style="color: var(--text-muted); font-size: 11px;">(TH16 - Base #1)</span>
+
+      <!-- Scoreboard Display -->
+      <div class="player-compare-layout">
+        <div class="player-compare-column">
+          <div style="display: flex; align-items: center; gap: 12px; justify-content: center;">
+            <img src="${war.clan.badgeUrls.small}" alt="badge" style="width: 32px; height: 32px; object-fit: contain;"/>
+            <strong style="font-size: 16px; color: var(--text-main);">${escapeHtml(war.clan.name)}</strong>
           </div>
-          <span class="optimizer-match-badge">98% Match (Giant Gauntlet Smash)</span>
+          <div style="font-size: 48px; font-weight: 800; text-align: center; color: var(--clash-gold); margin: 8px 0;">⭐ ${clanStars}</div>
+          <div style="text-align: center; font-size: 12px; color: var(--text-muted);">Destruction: ${war.clan.destructionPercentage}%</div>
         </div>
-        <div class="optimizer-item">
-          <div>
-            <strong style="color: var(--clash-gold);">ElixirQueen</strong> <span style="color: var(--text-muted); font-size: 15px;">(TH15)</span>
-            <span style="color: var(--text-muted); margin: 0 8px;">&rarr;</span>
-            <strong>TitanSlayer</strong> <span style="color: var(--text-muted); font-size: 11px;">(TH15 - Base #2)</span>
-          </div>
-          <span class="optimizer-match-badge">92% Match (Lavaloon Air Blitz)</span>
+
+        <div class="player-compare-vs">
+          <span style="font-size: 20px; font-weight: 800; color: var(--text-muted); background: rgba(255,255,255,0.05); padding: 8px 12px; border-radius: 8px; border: 1px solid var(--border-subtle);">VS</span>
         </div>
-        <div class="optimizer-item">
-          <div>
-            <strong style="color: var(--clash-gold);">DarkKnight</strong> <span style="color: var(--text-muted); font-size: 11px;">(TH14)</span>
-            <span style="color: var(--text-muted); margin: 0 8px;">&rarr;</span>
-            <strong>DragonBreath</strong> <span style="color: var(--text-muted); font-size: 11px;">(TH14 - Base #3)</span>
+
+        <div class="player-compare-column">
+          <div style="display: flex; align-items: center; gap: 12px; justify-content: center;">
+            <img src="${war.opponent.badgeUrls.small}" alt="badge" style="width: 32px; height: 32px; object-fit: contain;"/>
+            <strong style="font-size: 16px; color: var(--text-main);">${escapeHtml(war.opponent.name)}</strong>
           </div>
-          <span class="optimizer-match-badge">87% Match (Super Bowler Smash)</span>
+          <div style="font-size: 48px; font-weight: 800; text-align: center; color: var(--text-muted); margin: 8px 0;">⭐ ${oppStars}</div>
+          <div style="text-align: center; font-size: 12px; color: var(--text-muted);">Destruction: ${war.opponent.destructionPercentage}%</div>
+        </div>
+      </div>
+
+      <!-- War Countdown timer -->
+      <div class="countdown-timer" id="war-countdown">
+        <!-- Rendered by startWarCountdown dynamically -->
+      </div>
+
+      <!-- Live war feed simulation list -->
+      <div class="war-feed-container">
+        <h3>⚔️ Active Combat Engagement Feed</h3>
+        <ul class="war-feed-list" id="war-feed-list-element">
+          <!-- Filled by initWarTimelineSimulation -->
+        </ul>
+      </div>
+
+      <!-- War Attack Matrix (Feature 2) -->
+      <div class="attack-matrix-container" id="war-attack-matrix">
+        <div class="flex-between border-bottom-subtle pb-12">
+          <h3 class="text-lg font-bold">⚔️ Attack Matrix Matrix</h3>
+          <span class="text-xs text-muted">Who attacked whom — star breakdown</span>
+        </div>
+        <div id="war-attack-matrix-grid" style="margin-top: 16px; overflow-x: auto;">
+          <!-- Populated in renderWarAttackMatrix -->
         </div>
       </div>
     </div>
   `;
 
   // Start countdown timer
-  if (war.endTime) {
-    startWarCountdown(war.endTime);
-  }
+  startWarCountdown(war.endTime);
 
-  // Bootstrap Simulated Events Stream for Sandbox mode!
-  if (state.mode === 'demo') {
-    startSimulatedWarStream(war);
-  } else {
-    if (feedCard) feedCard.style.display = 'none';
-  }
+  // Initialize Timeline simulation feed
+  initWarTimelineSimulation(war);
+
+  // Render Attack Matrix
+  renderWarAttackMatrix(war);
 }
 
-// Sandbox Live War Combat Event Stream Generator
-function startSimulatedWarStream(war) {
-  const feedCard = document.getElementById('war-feed-card');
-  const feedTimeline = document.getElementById('war-feed-timeline');
-  if (!feedCard || !feedTimeline) return;
+function renderWarAttackMatrix(war) {
+  const grid = document.getElementById('war-attack-matrix-grid');
+  if (!grid || !war || !war.clan || !war.clan.members) return;
 
-  // Render card element
-  feedCard.style.display = 'block';
-  feedTimeline.innerHTML = '';
+  const clanMembers = war.clan.members || [];
+  const opponentMembers = war.opponent.members || [];
 
-  const attackers = ['ClashMaster', 'ElixirQueen', 'DarkKnight', 'GoblinKing', 'ElectroStorm', 'LavaHound', 'GrandWarlock'];
-  const defenders = ['ShadowNinja', 'TitanSlayer', 'DragonBreath', 'PekkaPower', 'GiantFist', 'WizardFire', 'ArcherArrow'];
-  const troopsUsed = ['Lavaloon', 'Queen Charge Hog', 'Electro Dragons', 'Super Bowler Smash', 'Yeti Whip', 'Golem Witch', 'Super Archer Blimp'];
-
-  // Seed 3 starting events to immediately fill out the timeline!
-  for (let i = 0; i < 3; i++) {
-    const isAlly = i % 2 === 0;
-    const attacker = isAlly ? attackers[i] : defenders[i];
-    const defender = isAlly ? defenders[i] : attackers[i];
-    const stars = Math.floor(Math.random() * 2) + 2; // 2 or 3 stars
-    const destruction = stars === 3 ? 100 : Math.floor(Math.random() * 15) + 85;
-    const strategy = troopsUsed[i];
-    addWarFeedItem(attacker, defender, stars, destruction, strategy, isAlly);
-  }
-
-  // Cancel prior streams
-  if (warInterval) {
-    clearInterval(warInterval);
-  }
-
-  // Launch recurring loop (once every 8 seconds)
-  warInterval = setInterval(() => {
-    // Break out if active tab changed or demo mode disabled
-    if (state.mode !== 'demo' || state.activeTab !== 'war') return;
-
-    const isAlly = Math.random() > 0.45;
-    const attacker = isAlly ? attackers[Math.floor(Math.random() * attackers.length)] : defenders[Math.floor(Math.random() * defenders.length)];
-    const defender = isAlly ? defenders[Math.floor(Math.random() * defenders.length)] : attackers[Math.floor(Math.random() * attackers.length)];
-    const stars = Math.floor(Math.random() * 3) + 1; // 1 to 3 stars
-    const destruction = stars === 3 ? 100 : Math.floor(Math.random() * 40) + 60;
-    const strategy = troopsUsed[Math.floor(Math.random() * troopsUsed.length)];
-
-    addWarFeedItem(attacker, defender, stars, destruction, strategy, isAlly);
-
-    // Feed stats into war scoreboard context!
-    if (state.currentWar) {
-      if (isAlly) {
-        state.currentWar.clan.stars += stars;
-        state.currentWar.clan.attacks++;
-        state.currentWar.clan.destructionPercentage = parseFloat((state.currentWar.clan.destructionPercentage * 0.96 + destruction * 0.04).toFixed(1));
-      } else {
-        state.currentWar.opponent.stars += stars;
-        state.currentWar.opponent.attacks++;
-        state.currentWar.opponent.destructionPercentage = parseFloat((state.currentWar.opponent.destructionPercentage * 0.96 + destruction * 0.04).toFixed(1));
-      }
-      updateWarScoreboard();
-    }
-  }, 8000);
-}
-
-function addWarFeedItem(attacker, defender, stars, destruction, strategy, isAlly) {
-  const feedTimeline = document.getElementById('war-feed-timeline');
-  if (!feedTimeline) return;
-
-  const item = document.createElement('li');
-  item.className = `war-feed-item ${isAlly ? '' : 'opponent-event'}`;
-
-  const icon = isAlly ? '⚔️' : '🛡️';
-  const starsHtml = '<span class="star-rating">' + 
-    Array(stars).fill('<i class="fas fa-star"></i>').join('') + 
-    Array(3 - stars).fill('<i class="far fa-star"></i>').join('') + 
-    '</span>';
-
-  item.innerHTML = `
-    <span style="font-size: 16px;">${icon}</span>
-    <div>
-      <strong style="color: ${isAlly ? 'var(--clash-gold)' : 'var(--clash-elixir)'};">${escapeHtml(attacker)}</strong> 
-      attacked <strong>${escapeHtml(defender)}</strong> 
-      using <em>${escapeHtml(strategy)}</em><br/>
-      <span style="font-size: 11px; color: var(--text-muted); display: flex; align-items: center; gap: 8px; margin-top: 4px;">
-        ${starsHtml} &bull; ${destruction}% Destruction
-      </span>
-    </div>
-    <span class="war-feed-time">Just Now</span>
-  `;
-
-  requestAnimationFrame(() => {
-    feedTimeline.insertBefore(item, feedTimeline.firstChild);
-
-    // Keep list concise
-    while (feedTimeline.children.length > 25) {
-      feedTimeline.removeChild(feedTimeline.lastChild);
+  // Build lookup
+  const attackMap = {};
+  clanMembers.forEach(m => {
+    if (m.attacks) {
+      m.attacks.forEach(atk => {
+        attackMap[`${m.tag}_${atk.defenderTag}`] = atk;
+      });
     }
   });
+
+  let html = `<table class="attack-matrix-table"><thead><tr><th>Attacker \\ Defender</th>`;
+  opponentMembers.forEach(o => {
+    html += `<th title="${escapeHtml(o.name)}">${escapeHtml(o.name.substring(0, 8))}</th>`;
+  });
+  html += `</tr></thead><tbody>`;
+
+  clanMembers.forEach(c => {
+    html += `<tr><td style="text-align: left; font-weight: 600; color: var(--clash-gold);">${escapeHtml(c.name)}</td>`;
+    opponentMembers.forEach(o => {
+      const key = `${c.tag}_${o.tag}`;
+      const atk = attackMap[key];
+      if (atk) {
+        const stars = '⭐'.repeat(atk.stars) + '☆'.repeat(3 - atk.stars);
+        html += `<td class="attack-cell"><span class="attack-cell-stars">${stars}</span><span class="attack-cell-destruction">${atk.destructionPercentage}%</span></td>`;
+      } else {
+        html += `<td class="attack-cell"><span class="attack-cell-empty">—</span></td>`;
+      }
+    });
+    html += `</tr>`;
+  });
+
+  html += `</tbody></table>`;
+  grid.innerHTML = html;
 }
 
-function updateWarScoreboard() {
-  const war = state.currentWar;
-  if (!war) return;
+function initWarTimelineSimulation(war) {
+  const list = document.getElementById('war-feed-list-element');
+  if (!list) return;
 
-  const elStars = document.getElementById('clan-war-stars');
-  const elDest = document.getElementById('clan-war-destruction');
-  const elAttacks = document.getElementById('clan-war-attacks');
+  if (warInterval) clearInterval(warInterval);
 
-  const oppStars = document.getElementById('opponent-war-stars');
-  const oppDest = document.getElementById('opponent-war-destruction');
-  const oppAttacks = document.getElementById('opponent-war-attacks');
+  const mockEvents = [
+    { attacker: 'ClashMaster', defender: 'ShadowNinja', stars: 3, dest: 100, team: 'clan' },
+    { attacker: 'ShadowNinja', defender: 'DarkKnight', stars: 2, dest: 85, team: 'opp' },
+    { attacker: 'ElixirQueen', defender: 'LavaMaster', stars: 2, dest: 92, team: 'clan' },
+    { attacker: 'ElixirQueen', defender: 'PhoenixReborn', stars: 3, dest: 100, team: 'clan' },
+    { attacker: 'GoblinKing', defender: 'USA_Patriot', stars: 1, dest: 67, team: 'clan' },
+    { attacker: 'LavaHound', defender: 'GrandWarlock', stars: 3, dest: 100, team: 'opp' }
+  ];
 
-  if (elStars) elStars.innerText = war.clan.stars || 0;
-  if (elDest) elDest.innerText = `${war.clan.destructionPercentage || 0}%`;
-  if (elAttacks) elAttacks.innerText = war.clan.attacks || 0;
+  let currentIdx = 0;
+  function addEvent() {
+    if (currentIdx >= mockEvents.length) {
+      currentIdx = 0; // Loop simulation
+    }
+    const e = mockEvents[currentIdx++];
+    const li = document.createElement('li');
+    li.className = `war-feed-item ${e.team === 'opp' ? 'opponent-event' : ''}`;
+    const starsHtml = '⭐'.repeat(e.stars) + '☆'.repeat(3 - e.stars);
+    li.innerHTML = `
+      <i class="fas fa-swords" style="color: ${e.team === 'opp' ? 'var(--clash-elixir)' : 'var(--clash-gold)'};"></i>
+      <div>
+        <strong>${escapeHtml(e.attacker)}</strong> attacked <strong>${escapeHtml(e.defender)}</strong><br/>
+        <small style="color: var(--text-muted);">${starsHtml} (${e.dest}% destruction)</small>
+      </div>
+      <span class="war-feed-time">Just now</span>
+    `;
+    list.prepend(li);
+  }
 
-  if (oppStars) oppStars.innerText = war.opponent.stars || 0;
-  if (oppDest) oppDest.innerText = `${war.opponent.destructionPercentage || 0}%`;
-  if (oppAttacks) oppAttacks.innerText = war.opponent.attacks || 0;
+  // Add 3 initial events
+  addEvent();
+  addEvent();
+  addEvent();
+
+  warInterval = setInterval(addEvent, 12000);
 }
 
-// ===== CLAN COMPARISON =====
+// ===== CLAN COMPARISON PANEL =====
+async function loadComparisonClan(col, tag) {
+  const card = document.getElementById(`compare-clan-${col}-card`);
+  if (card) card.innerHTML = getSkeletonHTML();
 
-async function loadComparisonClan(side, tag) {
   try {
     const clan = await fetchCocData(`/clans/${tag}`);
-    state.compareClans[side] = clan;
-    showToast(`${escapeHtml(clan.name)} loaded as Clan ${side.toUpperCase()}`, 'success');
-    if (state.compareClans.a && state.compareClans.b) {
-      renderComparison();
-    } else {
-      renderPartialComparison();
-    }
+    state.compareClans[col] = clan;
+    renderComparison();
   } catch (err) {
-    showToast(`Error loading clan: ${err.message}`, 'error');
+    if (card) {
+      card.innerHTML = `<p class="text-muted">Error loading comparison clan: ${escapeHtml(err.message)}</p>`;
+    }
   }
-}
-
-function renderPartialComparison() {
-  const container = document.getElementById('comparison-results-container');
-  const loaded = state.compareClans.a || state.compareClans.b;
-  const side = state.compareClans.a ? 'A' : 'B';
-  const other = state.compareClans.a ? 'B' : 'A';
-  container.innerHTML = `
-    <div class="placeholder-state">
-      <i class="fas fa-check-circle" style="font-size: 48px; color: #4adb86; opacity: 0.8;"></i>
-      <p style="font-size: 15px;">Clan ${side} loaded: <strong>${escapeHtml(loaded.name)}</strong>. Now search Clan ${other} to compare!</p>
-    </div>
-  `;
 }
 
 function renderComparison() {
   const container = document.getElementById('comparison-results-container');
-  const a = state.compareClans.a;
-  const b = state.compareClans.b;
-  
-  const stats = [
-    { label: 'Clan Level', aVal: a.clanLevel, bVal: b.clanLevel },
-    { label: 'Total Trophies', aVal: a.clanPoints, bVal: b.clanPoints },
-    { label: 'Members', aVal: a.members, bVal: b.members },
-    { label: 'War Wins', aVal: a.warWins, bVal: b.warWins },
-    { label: 'War Losses', aVal: a.warLosses, bVal: b.warLosses },
-    { label: 'Win Streak', aVal: a.warWinStreak || 0, bVal: b.warWinStreak || 0 },
-    { label: 'Capital Hall', aVal: a.clanCapital?.capitalHallLevel || 0, bVal: b.clanCapital?.capitalHallLevel || 0 },
-  ];
+  if (!container) return;
+
+  const ca = state.compareClans.a;
+  const cb = state.compareClans.b;
+
+  if (!ca || !cb) {
+    container.innerHTML = `
+      <div class="placeholder-state">
+        <i class="fas fa-balance-scale" style="font-size: 48px; color: var(--clash-gold); opacity: 0.6; margin-bottom: 12px;"></i>
+        <p style="font-size: 15px; color: var(--text-muted);">Please load two valid Clans above to generate comparison stats.</p>
+      </div>
+    `;
+    return;
+  }
+
+  const winRateA = ((ca.warWins / (ca.warWins + ca.warLosses || 1)) * 100).toFixed(1);
+  const winRateB = ((cb.warWins / (cb.warWins + cb.warLosses || 1)) * 100).toFixed(1);
 
   container.innerHTML = `
+    <!-- Top Comparison summary headers -->
     <div class="comparison-layout">
       <div class="comparison-column">
-        <div class="flex-row gap-12 border-bottom-subtle pb-16">
-          <img src="${a.badgeUrls.medium}" alt="badge" style="width: 48px; height: 48px; object-fit: contain;"/>
-          <div>
-            <h3 class="text-lg font-bold">${escapeHtml(a.name)}</h3>
-            <span class="level-tag text-xs">LVL ${a.clanLevel}</span>
-          </div>
+        <div style="display: flex; align-items: center; gap: 12px; justify-content: center;">
+          <img src="${ca.badgeUrls.small}" alt="badge" style="width: 32px; height: 32px; object-fit: contain;"/>
+          <h4 style="font-size: 16px; color: var(--text-main); margin: 0;">${escapeHtml(ca.name)}</h4>
         </div>
-        ${stats.map(s => `
-          <div class="comparison-stat-row">
-            <span class="comparison-stat-label">${s.label}</span>
-            <span class="comparison-stat-value ${s.aVal > s.bVal ? 'comparison-winner' : s.aVal < s.bVal ? 'comparison-loser' : ''}">${typeof s.aVal === 'number' ? s.aVal.toLocaleString() : s.aVal}</span>
-          </div>
-        `).join('')}
       </div>
-      
       <div class="comparison-vs">
-        <div class="comparison-vs-badge">VS</div>
+        <span class="comparison-vs-badge">VS</span>
       </div>
-      
       <div class="comparison-column">
-        <div class="flex-row gap-12 border-bottom-subtle pb-16">
-          <img src="${b.badgeUrls.medium}" alt="badge" style="width: 48px; height: 48px; object-fit: contain;"/>
-          <div>
-            <h3 class="text-lg font-bold">${escapeHtml(b.name)}</h3>
-            <span class="level-tag text-xs">LVL ${b.clanLevel}</span>
-          </div>
+        <div style="display: flex; align-items: center; gap: 12px; justify-content: center;">
+          <img src="${cb.badgeUrls.small}" alt="badge" style="width: 32px; height: 32px; object-fit: contain;"/>
+          <h4 style="font-size: 16px; color: var(--text-main); margin: 0;">${escapeHtml(cb.name)}</h4>
         </div>
-        ${stats.map(s => `
-          <div class="comparison-stat-row">
-            <span class="comparison-stat-label">${s.label}</span>
-            <span class="comparison-stat-value ${s.bVal > s.aVal ? 'comparison-winner' : s.bVal < s.aVal ? 'comparison-loser' : ''}">${typeof s.bVal === 'number' ? s.bVal.toLocaleString() : s.bVal}</span>
-          </div>
-        `).join('')}
       </div>
     </div>
-    
+
+    <!-- Stats Table side-by-side -->
+    <div class="results-card mt-24">
+      <h3>⚔️ Metric Comparison Metrics</h3>
+      <div style="display: flex; flex-direction: column; margin-top: 16px;">
+        ${renderCompareRow("Level", ca.clanLevel, cb.clanLevel)}
+        ${renderCompareRow("Total Points", ca.clanPoints || 0, cb.clanPoints || 0)}
+        ${renderCompareRow("Members Count", ca.members, cb.members)}
+        ${renderCompareRow("War Wins", ca.warWins, cb.warWins)}
+        ${renderCompareRow("War Win Rate", parseFloat(winRateA), parseFloat(winRateB), "%")}
+        ${renderCompareRow("Streak", ca.warWinStreak || 0, cb.warWinStreak || 0)}
+      </div>
+    </div>
+
+    <!-- Chart container -->
     <div class="comparison-chart-container">
-      <h3 class="font-bold mb-16">Visual Comparison</h3>
-      <div class="chart-container-responsive">
-        <canvas id="comparison-chart"></canvas>
+      <h3>📈 Comparative Chart</h3>
+      <div class="chart-container-responsive mt-16">
+        <canvas id="comparisonChartCanvas"></canvas>
       </div>
     </div>
   `;
-  
-  loadChartJs().then(() => initComparisonChart(a, b));
+
+  initComparisonChart(ca, cb);
 }
 
-async function initComparisonChart(a, b) {
-  await loadChartJs();
-  const ctx = document.getElementById('comparison-chart');
-  if (!ctx) return;
-  if (comparisonChart) comparisonChart.destroy();
-  
-  comparisonChart = new Chart(ctx.getContext('2d'), {
-    type: 'radar',
-    data: {
-      labels: ['Trophies', 'War Wins', 'Members', 'Level', 'Capital', 'Win Streak'],
-      datasets: [
-        {
-          label: a.name,
-          data: [
-            a.clanPoints / 600,
-            a.warWins,
-            a.members * 10,
-            a.clanLevel * 25,
-            (a.clanCapital?.capitalHallLevel || 0) * 60,
-            (a.warWinStreak || 0) * 30
-          ],
-          borderColor: '#F5A623',
-          backgroundColor: 'rgba(245, 166, 35, 0.15)',
-          borderWidth: 2,
-          pointBackgroundColor: '#F5A623'
+function renderCompareRow(label, valA, valB, suffix = '') {
+  const classA = valA > valB ? 'comparison-winner' : valA < valB ? 'comparison-loser' : '';
+  const classB = valB > valA ? 'comparison-winner' : valB < valA ? 'comparison-loser' : '';
+  return `
+    <div class="comparison-stat-row">
+      <div style="flex: 1; text-align: left;"><strong class="${classA}">${valA.toLocaleString()}${suffix}</strong></div>
+      <div class="comparison-stat-label" style="flex: 1.2; text-align: center;">${label}</div>
+      <div style="flex: 1; text-align: right;"><strong class="${classB}">${valB.toLocaleString()}${suffix}</strong></div>
+    </div>
+  `;
+}
+
+function initComparisonChart(ca, cb) {
+  loadChartJs().then(() => {
+    const canvas = document.getElementById('comparisonChartCanvas');
+    if (!canvas) return;
+    const ctx = canvas.getContext('2d');
+
+    if (comparisonChart) comparisonChart.destroy();
+    
+    try {
+      comparisonChart = new Chart(ctx, {
+        type: 'bar',
+        data: {
+          labels: ['Trophies / 10', 'War Wins', 'Win Streak'],
+          datasets: [
+            {
+              label: ca.name,
+              data: [Math.floor((ca.clanPoints || 0)/10), ca.warWins || 0, ca.warWinStreak || 0],
+              backgroundColor: 'rgba(245, 166, 35, 0.75)',
+              borderColor: 'var(--clash-gold)',
+              borderWidth: 1.5
+            },
+            {
+              label: cb.name,
+              data: [Math.floor((cb.clanPoints || 0)/10), cb.warWins || 0, cb.warWinStreak || 0],
+              backgroundColor: 'rgba(139, 68, 253, 0.75)',
+              borderColor: 'var(--clash-dark-elixir)',
+              borderWidth: 1.5
+            }
+          ]
         },
-        {
-          label: b.name,
-          data: [
-            b.clanPoints / 600,
-            b.warWins,
-            b.members * 10,
-            b.clanLevel * 25,
-            (b.clanCapital?.capitalHallLevel || 0) * 60,
-            (b.warWinStreak || 0) * 30
-          ],
-          borderColor: '#EC3B83',
-          backgroundColor: 'rgba(236, 59, 131, 0.15)',
-          borderWidth: 2,
-          pointBackgroundColor: '#EC3B83'
+        options: {
+          responsive: true,
+          maintainAspectRatio: false,
+          plugins: {
+            legend: { labels: { color: '#a8a8a8', font: { family: 'Outfit', size: 10 } } }
+          },
+          scales: {
+            x: {
+              grid: { display: false },
+              ticks: { color: '#a8a8a8', font: { family: 'Outfit', size: 10 } }
+            },
+            y: {
+              grid: { color: 'rgba(255, 255, 255, 0.05)' },
+              ticks: { color: '#a8a8a8', font: { family: 'Outfit', size: 10 } }
+            }
+          }
         }
-      ]
-    },
-    options: {
-      responsive: true,
-      maintainAspectRatio: false,
-      plugins: {
-        legend: { labels: { color: '#8E9BAE' } }
-      },
-      scales: {
-        r: {
-          grid: { color: 'rgba(255, 255, 255, 0.05)' },
-          angleLines: { color: 'rgba(255, 255, 255, 0.05)' },
-          ticks: { display: false },
-          pointLabels: { color: '#8E9BAE', font: { size: 12 } }
-        }
-      }
+      });
+    } catch(err) {
+      canvas.parentElement.innerHTML = `<p class="text-muted">Chart rendering failed.</p>`;
     }
-  });
+  }).catch(() => {});
 }
 
-// ===== EXTENSIONS & NEW TAB RENDERERS =====
-
-// 1. Gold Pass Tracker
-async function loadGoldPassData() {
-  const container = document.getElementById('goldpass-widget-container');
+// ===== GOLD PASS REWARDS =====
+async function loadGoldPassRewards(goldpass) {
+  const container = document.getElementById('gold-pass-container');
   if (!container) return;
-  
-  container.innerHTML = `<div class="skeleton skeleton-card" style="height: 120px;"></div>`;
-  
-  try {
-    const goldpass = await fetchCocData('/goldpass/seasons/current');
-    if (!goldpass) {
-      container.innerHTML = `<p class="text-muted">Gold Pass data currently unavailable.</p>`;
-      return;
-    }
-    
-    const startTime = new Date(goldpass.startTime).getTime();
-    const endTime = new Date(goldpass.endTime).getTime();
-    const now = Date.now();
-    
-    const totalDuration = endTime - startTime;
-    const elapsed = now - startTime;
-    const progressPercent = Math.min(100, Math.max(0, (elapsed / totalDuration) * 100));
-    
-    const daysLeft = Math.ceil(Math.max(0, endTime - now) / (1000 * 60 * 60 * 24));
-    
-    container.innerHTML = `
-      <div class="gold-pass-container">
-        <div class="gold-pass-header">
-          <div>
-            <h3 class="gold-gradient-text" style="font-size: 18px; font-weight: 800; display: flex; align-items: center; gap: 8px; margin: 0;">
-              <i class="fas fa-ticket-alt"></i> Gold Pass Season
-            </h3>
-            <span style="font-size: 11px; color: var(--text-muted);">Active Battle Pass tracking metrics</span>
-          </div>
-          <span class="badge-small" style="background: rgba(245, 166, 35, 0.15); color: var(--clash-gold); font-size: 11px; font-weight: 800; border-radius: 6px; padding: 4px 8px;">
-            ${daysLeft} DAYS REMAINING
-          </span>
-        </div>
-        
-        <div style="display: flex; flex-direction: column; gap: 6px; margin-top: 8px;">
-          <div class="flex-between" style="display: flex; justify-content: space-between;">
-            <span style="font-size: 12px; color: var(--text-muted);">Season Progress</span>
-            <span style="font-size: 12px; font-weight: 700; color: var(--clash-gold);">${Math.floor(progressPercent)}% completed</span>
-          </div>
-          <div class="gold-pass-progress-wrapper">
-            <div class="gold-pass-progress-bar" style="width: ${progressPercent}%;"></div>
-          </div>
-        </div>
 
-        <div style="margin-top: 16px;">
-          <h4 style="font-size: 12px; font-weight: 700; margin-bottom: 8px; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.5px;">Season Highlights</h4>
-          <div class="goldpass-rewards-list">
-            ${(goldpass.rewards || []).map(r => `
-              <div class="goldpass-reward-card" onclick="showGoldPassRewardInfo('${escapeHtml(r.name)}', '${escapeHtml(r.type)}', ${r.points})">
-                <div style="font-size: 20px;">${r.type === 'skin' ? '👑' : r.type === 'book' ? '📘' : '🪙'}</div>
-                <div class="flex-col">
-                  <span style="font-size: 12px; font-weight: 700; color: var(--text-main);">${escapeHtml(r.name)}</span>
-                  <span style="font-size: 10px; color: var(--text-muted);">${r.points} pts required</span>
-                </div>
-              </div>
-            `).join('')}
+  try {
+    container.innerHTML = `
+      <div class="section-header">
+        <h3>🎁 Season Gold Pass rewards</h3>
+        <span style="font-size: 12px; color: var(--text-muted);">Current season rewards</span>
+      </div>
+      
+      <div style="display: flex; flex-direction: column; gap: 12px; margin-top: 16px;">
+        ${(goldpass.rewards || []).slice(0, 3).map(rew => `
+          <div class="card-item" style="display: flex; justify-content: space-between; align-items: center; padding: 12px 16px; cursor: pointer;" onclick="showGoldPassRewardInfo('${escapeHtml(rew.name)}', '${escapeHtml(rew.type)}', ${rew.points})">
+            <div>
+              <strong style="color: var(--text-main); font-size: 13px;">${escapeHtml(rew.name)}</strong><br/>
+              <span class="badge-small" style="background: rgba(245,166,35,0.1); color: var(--clash-gold); font-size: 9px; margin-top: 4px; display: inline-block;">${escapeHtml(rew.type.toUpperCase())}</span>
+            </div>
+            <strong style="color: var(--clash-gold); font-size: 13px;">${rew.points} Pts</strong>
           </div>
-        </div>
+        `).join('')}
       </div>
     `;
   } catch (err) {
@@ -2275,7 +2196,7 @@ async function loadCWLData(clanTag) {
                 <td>
                   <div style="display: flex; align-items: center; gap: 10px;">
                     <img src="${c.badgeUrls.small}" alt="badge" style="width: 24px; height: 24px; object-fit: contain;"/>
-                    <span style="color: var(--text-main); cursor: pointer;" onclick="quickLoadBookmark('clan', '${escapeHtml(c.tag)}')">${escapeHtml(c.name)}</span>
+                    <span style="color: var(--text-main); cursor: pointer;" data-action="load-clan" data-tag="${escapeHtml(c.tag)}">${escapeHtml(c.name)}</span>
                     ${c.tag === clanTag ? '<span class="badge-small" style="background: rgba(245,166,35,0.15); color: var(--clash-gold); font-size: 10px; margin-left: 8px;">HOME</span>' : ''}
                   </div>
                 </td>
@@ -2496,8 +2417,8 @@ async function fetchLeaderboardRankings(type, locationId) {
                       ${badgeImg}
                       ${leagueImg}
                       <div>
-                        <strong style="color: var(--text-main); cursor: pointer;" onclick="quickLoadBookmark('${isClans ? 'clan' : 'player'}', '${tagVal}')">${nameVal}</strong>
-                        <span class="inspect-badge" onclick="quickLoadBookmark('${isClans ? 'clan' : 'player'}', '${tagVal}')" style="margin-left: 8px;">Inspect</span><br/>
+                        <strong style="color: var(--text-main); cursor: pointer;" data-action="${isClans ? 'load-clan' : 'load-player'}" data-tag="${tagVal}">${nameVal}</strong>
+                        <span class="inspect-badge" data-action="${isClans ? 'load-clan' : 'load-player'}" data-tag="${tagVal}" style="margin-left: 8px;">Inspect</span><br/>
                         <small style="color: var(--text-muted); font-size: 11px;">${subtext}</small>
                       </div>
                     </div>
@@ -2636,3 +2557,277 @@ async function loadCapitalRaids(clanTag) {
   }
 }
 
+// ===== FEATURE 1: CLAN SEARCH BY NAME =====
+function toggleClanSearchMode(mode) {
+  const tagForm = document.getElementById('clan-search-form');
+  const nameForm = document.getElementById('clan-name-search-form');
+  document.querySelectorAll('.search-tab-btn').forEach(btn => {
+    btn.classList.toggle('active', btn.dataset.searchMode === mode);
+  });
+  tagForm.style.display = mode === 'tag' ? 'flex' : 'none';
+  nameForm.style.display = mode === 'name' ? 'flex' : 'none';
+}
+window.toggleClanSearchMode = toggleClanSearchMode; // expose globally
+
+function setupClanNameSearch() {
+  const form = document.getElementById('clan-name-search-form');
+  if (!form) return;
+  form.addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const name = document.getElementById('clan-name-input').value.trim();
+    const minMembers = document.getElementById('clan-min-members').value;
+    await searchClansByName(name, minMembers);
+  });
+}
+
+async function searchClansByName(name, minMembers) {
+  const container = document.getElementById('clan-results-container');
+  container.innerHTML = getSkeletonHTML();
+  try {
+    const encodedName = encodeURIComponent(name);
+    const data = await fetchCocData(`/clans?name=${encodedName}&minMembers=${minMembers}&limit=10`);
+    if (!data || !data.items || data.items.length === 0) {
+      container.innerHTML = `
+        <div class="placeholder-state">
+          <i class="fas fa-search"></i>
+          <p>No clans found matching "${escapeHtml(name)}"</p>
+        </div>`;
+      return;
+    }
+    renderClanSearchResults(data.items);
+  } catch(err) {
+    container.innerHTML = `
+      <div class="placeholder-state">
+        <i class="fas fa-times-circle"></i>
+        <p>Error searching clans: ${escapeHtml(err.message)}</p>
+      </div>`;
+  }
+}
+
+function renderClanSearchResults(clans) {
+  const container = document.getElementById('clan-results-container');
+  container.innerHTML = `
+    <div style="border-bottom: 1px solid var(--border-subtle); padding-bottom: 12px; margin-bottom: 16px;">
+      <h3 class="gold-gradient-text" style="font-size: 20px; font-weight: 800; margin: 0;">🔍 Search Results</h3>
+      <span style="font-size: 12px; color: var(--text-muted);">${clans.length} clans found</span>
+    </div>
+    <div class="clan-search-results-grid">
+      ${clans.map(clan => `
+        <div class="clan-search-result-card" data-action="load-clan" data-tag="${escapeHtml(clan.tag)}">
+          <img src="${clan.badgeUrls.small}" alt="badge" style="width: 40px; height: 40px; object-fit: contain;"/>
+          <div class="clan-search-result-info">
+            <strong style="color: var(--text-main); font-size: 15px;">${escapeHtml(clan.name)}</strong>
+            <div class="clan-search-result-stats">
+              <span><i class="fas fa-trophy" style="color: var(--clash-gold); font-size: 11px;"></i> ${clan.clanPoints?.toLocaleString() || 0}</span>
+              <span><i class="fas fa-users"></i> ${clan.members}/50</span>
+              <span>LVL ${clan.clanLevel}</span>
+              <span>${clan.warWins || 0} war wins</span>
+            </div>
+          </div>
+          <span class="level-tag" style="font-size: 10px; padding: 2px 6px;">LVL ${clan.clanLevel}</span>
+        </div>
+      `).join('')}
+    </div>
+  `;
+}
+
+// ===== FEATURE 3: PLAYER COMPARE TOOL =====
+function setupPlayerCompare() {
+  const formA = document.getElementById('player-compare-a-form');
+  const formB = document.getElementById('player-compare-b-form');
+  
+  if (formA) {
+    formA.addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const tag = document.getElementById('player-compare-a-input').value.trim().toUpperCase();
+      await loadComparePlayer('a', tag);
+    });
+  }
+  if (formB) {
+    formB.addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const tag = document.getElementById('player-compare-b-input').value.trim().toUpperCase();
+      await loadComparePlayer('b', tag);
+    });
+  }
+}
+
+async function loadComparePlayer(col, tag) {
+  const container = document.getElementById('player-compare-results-container');
+  try {
+    const player = await fetchCocData(`/players/${tag}`);
+    state.comparePlayers[col] = player;
+    showToast(`Player ${col.toUpperCase()} Loaded: ${player.name}`, "success");
+    renderPlayerComparison();
+  } catch(err) {
+    showToast(`Error loading player: ${err.message}`, "error");
+  }
+}
+
+function renderPlayerComparison() {
+  const container = document.getElementById('player-compare-results-container');
+  if (!container) return;
+
+  const pa = state.comparePlayers.a;
+  const pb = state.comparePlayers.b;
+
+  if (!pa || !pb) {
+    container.innerHTML = `
+      <div class="placeholder-state">
+        <i class="fas fa-exchange-alt" style="font-size: 48px; color: var(--clash-gold); opacity: 0.6; margin-bottom: 12px;"></i>
+        <p style="font-size: 15px; color: var(--text-muted);">Please load two Players above to compare head-to-head.</p>
+      </div>`;
+    return;
+  }
+
+  container.innerHTML = `
+    <div class="player-compare-layout mt-24">
+      <div class="player-compare-column">
+        <div style="display: flex; align-items: center; gap: 12px; justify-content: center;">
+          <img src="${pa.league?.iconUrls?.small || ''}" alt="" style="width: 32px; height: 32px; object-fit: contain;"/>
+          <strong style="font-size: 16px; color: var(--text-main);">${escapeHtml(pa.name)}</strong>
+        </div>
+        <div style="text-align: center; color: var(--text-muted); font-size: 12px;">${escapeHtml(pa.tag)}</div>
+      </div>
+
+      <div class="player-compare-vs">
+        <span class="comparison-vs-badge">VS</span>
+      </div>
+
+      <div class="player-compare-column">
+        <div style="display: flex; align-items: center; gap: 12px; justify-content: center;">
+          <img src="${pb.league?.iconUrls?.small || ''}" alt="" style="width: 32px; height: 32px; object-fit: contain;"/>
+          <strong style="font-size: 16px; color: var(--text-main);">${escapeHtml(pb.name)}</strong>
+        </div>
+        <div style="text-align: center; color: var(--text-muted); font-size: 12px;">${escapeHtml(pb.tag)}</div>
+      </div>
+    </div>
+
+    <!-- Comparative stats list -->
+    <div class="results-card mt-24">
+      <h3>⚔️ Head-to-Head Attributes</h3>
+      <div style="display: flex; flex-direction: column; margin-top: 16px;">
+        ${renderCompareRow("Town Hall Level", pa.townHallLevel, pb.townHallLevel)}
+        ${renderCompareRow("Experience Lvl", pa.expLevel, pb.expLevel)}
+        ${renderCompareRow("Multiplayer Trophies", pa.trophies || 0, pb.trophies || 0)}
+        ${renderCompareRow("Best Trophies", pa.bestTrophies || 0, pb.bestTrophies || 0)}
+        ${renderCompareRow("War Stars Captured", pa.warStars || 0, pb.warStars || 0)}
+        ${renderCompareRow("Hero Upgrades", (pa.heroes || []).length, (pb.heroes || []).length)}
+        ${renderCompareRow("Donations Given", pa.donations || 0, pb.donations || 0)}
+      </div>
+    </div>
+  `;
+}
+
+// ===== FEATURE 4: COMMUNITY BASE LAYOUTS GALLERY =====
+function setupLayoutGallery() {
+  const form = document.getElementById('layout-submit-form');
+  if (!form) return;
+  form.addEventListener('submit', (e) => {
+    e.preventDefault();
+    const link = document.getElementById('layout-link-input').value.trim();
+    const th = parseInt(document.getElementById('layout-th-select').value);
+    const type = document.getElementById('layout-type-select').value;
+    const desc = document.getElementById('layout-desc-input').value.trim();
+    
+    if (!link.startsWith('https://link.clashofclans.com')) {
+      showToast("Invalid Clash of Clans layout link.", "error");
+      return;
+    }
+
+    const newLayout = {
+      id: Date.now(),
+      thLevel: th,
+      type: type,
+      description: desc,
+      link: link,
+      author: 'You',
+      votes: 0,
+      createdAt: new Date().toISOString()
+    };
+
+    state.layouts.unshift(newLayout);
+    showToast("Community Layout added successfully!", "success");
+    form.reset();
+    renderLayoutGallery();
+  });
+
+  // Load initial mocks
+  state.layouts = structuredClone(window.MOCK_DATA.layoutGallery || window.MOCK_LAYOUT_GALLERY || []);
+  renderLayoutGallery();
+}
+
+function renderLayoutGallery() {
+  const container = document.getElementById('layout-gallery-container');
+  if (!container) return;
+
+  const filtered = state.layouts.filter(l => {
+    if (state.layoutFilterType === 'all') return true;
+    return l.type === state.layoutFilterType;
+  });
+
+  container.innerHTML = `
+    <div class="flex-between border-bottom-subtle pb-12 mb-16">
+      <h3 class="gold-gradient-text" style="font-size: 20px; font-weight: 800; margin:0;">🛡️ Layout Gallery</h3>
+      <span class="text-xs text-muted">${filtered.length} layouts listed</span>
+    </div>
+
+    <!-- Filter Tab Bar -->
+    <div class="layout-filter-bar">
+      <button class="layout-filter-btn ${state.layoutFilterType === 'all' ? 'active' : ''}" data-action="filter-layouts" data-filter="all">All</button>
+      <button class="layout-filter-btn ${state.layoutFilterType === 'war' ? 'active' : ''}" data-action="filter-layouts" data-filter="war">War</button>
+      <button class="layout-filter-btn ${state.layoutFilterType === 'home' ? 'active' : ''}" data-action="filter-layouts" data-filter="home">Home</button>
+      <button class="layout-filter-btn ${state.layoutFilterType === 'cwl' ? 'active' : ''}" data-action="filter-layouts" data-filter="cwl">CWL</button>
+    </div>
+
+    <div class="layout-gallery-grid">
+      ${filtered.map(l => {
+        const hasVoted = state.votedLayouts.includes(l.id);
+        return `
+          <div class="layout-card">
+            <div class="layout-card-header">
+              <span class="layout-th-badge">TH ${l.thLevel}</span>
+              <span class="layout-type-badge ${l.type}">${l.type}</span>
+            </div>
+            <p class="layout-card-desc">${escapeHtml(l.description)}</p>
+            <div style="font-size: 12px; color: var(--text-muted);">Uploaded by <strong>${escapeHtml(l.author)}</strong></div>
+            <div class="layout-card-meta">
+              <button class="layout-vote-btn ${hasVoted ? 'voted' : ''}" data-action="vote-layout" data-id="${l.id}">
+                <i class="fas fa-thumbs-up"></i> ${l.votes}
+              </button>
+              <button class="layout-copy-btn" data-action="copy-layout-link" data-link="${escapeHtml(l.link)}">
+                <i class="fas fa-copy"></i> Copy Link
+              </button>
+            </div>
+          </div>
+        `;
+      }).join('')}
+    </div>
+  `;
+}
+
+function voteLayout(id) {
+  if (state.votedLayouts.includes(id)) {
+    // Unvote
+    state.votedLayouts = state.votedLayouts.filter(vid => vid !== id);
+    const item = state.layouts.find(l => l.id === id);
+    if (item) item.votes = Math.max(0, item.votes - 1);
+    showToast("Vote retracted", "info");
+  } else {
+    // Vote
+    state.votedLayouts.push(id);
+    const item = state.layouts.find(l => l.id === id);
+    if (item) item.votes++;
+    showToast("Layout upvoted!", "success");
+  }
+  localStorage.setItem('coc_voted_layouts', JSON.stringify(state.votedLayouts));
+  renderLayoutGallery();
+}
+
+function copyLayoutLink(link) {
+  navigator.clipboard.writeText(link).then(() => {
+    showToast("Clash Layout link copied! Open Clash of Clans to load layout.", "success");
+  }).catch(() => {
+    showToast("Could not copy layout link.", "error");
+  });
+}
