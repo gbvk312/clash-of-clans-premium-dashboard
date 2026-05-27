@@ -9,15 +9,19 @@ A visually stunning, glassmorphic dark-mode dashboard for **Clash of Clans** pla
 ## ✨ Features
 
 * **🛡️ Home Command Center**: Instant overview of your designated home clan, featuring total trophies, active members, and war records.
+* **🏆 War Hub (CWL & Logs)**: Track active wars in real-time, view **Clan War League (CWL) brackets & standings**, and explore detailed past **War Log histories** with visual star comparisons.
+* **🌎 Global & Local Leaderboards**: Search and browse top players and clans globally (International) or sorted by country regions (e.g. United States, India, Germany).
+* **🏰 Capital Raids Tracker**: Inspect your Clan Capital district layout levels and trace historical logs of Capital Gold gathered during Raid Weekends.
+* **🎟️ Gold Pass Season Progress**: Sleek glassmorphic Battle Pass widget showing season countdowns, progress bars, and high-tier rewards.
+* **🏷️ Recruitment & Playstyle Labels**: Glow playstyle tags (e.g., *Clan Wars*, *Active Donator*) as beautiful badges directly on clan rosters and player profiles.
 * **📊 Clan League Distribution**: Dynamic charting (via Chart.js) visualizing your clan members' trophy brackets.
 * **🔍 Autocomplete & Search History**: Save recent searches locally for one-click access.
 * **📈 Donation Ratios**: Bar chart comparing clan members' donations given versus donations received.
 * **⚔️ Head-to-Head Clan Comparison**: Load two clans side-by-side to compare levels, trophy records, capital configurations, win streaks, and overlay radar comparisons.
 * **🔥 Live Combat Feed**: Stream real-time battle events simulated directly for Sandbox testing or bridged live.
-* **⏳ War Countdown Timers**: Micro-animations and countdown segments ticking down until the active war concludes.
 * **🎒 Spell & Achievement Profiling**: Detailed breakdowns of player spell arsenals, equipment levels, meta recommendations, and achievement stars.
 * **🌗 Dual Theme Controls**: Easily toggle between dark obsidian mode and sleek light mode.
-* **⌨️ Keyboard Shortcuts**: Smooth dashboard traversal (`1`-`5` for tabs, `/` to focus search inputs, `Esc` to exit settings).
+* **⌨️ Keyboard Shortcuts**: Smooth dashboard traversal (`1`-`7` for tabs, `/` to focus search inputs, `Esc` to exit settings).
 
 ---
 
