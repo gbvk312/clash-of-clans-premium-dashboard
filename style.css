@@ -3570,6 +3570,55 @@ dialog.drawer[open] {
   margin-top: 8px;
 }
 
+/* Animated Dash Drawing overlay */
+.canvas-svg-overlay path {
+  animation: dashMarch 2s infinite linear;
+}
 
+@keyframes dashMarch {
+  to {
+    stroke-dashoffset: -20;
+  }
+}
 
+/* Skeleton Loading Screens */
+.skeleton {
+  background: linear-gradient(
+    90deg,
+    rgba(255, 255, 255, 0.03) 25%,
+    rgba(255, 255, 255, 0.08) 37%,
+    rgba(255, 255, 255, 0.03) 63%
+  );
+  background-size: 400% 100%;
+  animation: skeleton-loading 1.4s ease infinite;
+  border-radius: 4px;
+}
 
+@keyframes skeleton-loading {
+  0% {
+    background-position: 100% 50%;
+  }
+  100% {
+    background-position: 0% 50%;
+  }
+}
+
+.skeleton-text {
+  height: 14px;
+  width: 80%;
+  margin-bottom: 8px;
+}
+
+.skeleton-title {
+  height: 22px;
+  width: 40%;
+  margin-bottom: 16px;
+}
+
+.skeleton-card {
+  padding: 20px;
+  border: 1px solid var(--border-subtle);
+  background: var(--bg-stone-dark);
+  border-radius: 12px;
+  min-height: 100px;
+}

@@ -4,7 +4,9 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <meta name="description" content="Premium Clash of Clans dashboard with real-time clan stats, player profiles, war tracking, and clan comparison tools.">
+  <meta name="theme-color" content="#0d0e12">
   <title>Clash of Clans Premium API Dashboard</title>
+  <link rel="manifest" href="manifest.json">
   <link rel="stylesheet" href="style.css">
   <!-- Font Awesome Icons for beautiful gaming styling -->
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
@@ -517,9 +519,13 @@
               <button class="palette-btn" data-defense="giantbomb" data-range="20" style="border-color: rgba(236, 59, 131, 0.35);"><i class="fas fa-bomb"></i> Giant Bomb</button>
               <button class="palette-btn" data-defense="airmine" data-range="30" style="border-color: rgba(74, 219, 134, 0.35);"><i class="fas fa-ghost"></i> Air Mine</button>
             </div>
-            <div style="display: flex; gap: 8px; margin-left: auto;">
+            <div style="display: flex; gap: 8px; margin-left: auto; flex-wrap: wrap;">
               <button class="primary-btn" id="canvas-heatmap-toggle-btn" onclick="toggleDPSHeatmap()" style="padding: 8px 14px; font-size: 13px; background: rgba(245, 166, 35, 0.15); border: 1px solid var(--clash-gold); color: var(--clash-gold); box-shadow: none;">Heatmap: OFF</button>
               <button class="primary-btn" id="canvas-draw-path-btn" onclick="togglePathDrawing()" style="padding: 8px 14px; font-size: 13px; background: rgba(74, 144, 226, 0.15); border: 1px solid #4a90e2; color: #4a90e2; box-shadow: none;">Draw Path</button>
+              <button class="primary-btn" onclick="saveCanvasPreset()" style="padding: 8px 14px; font-size: 13px; background: rgba(74, 219, 134, 0.15); border: 1px solid #4adb86; color: #4adb86; box-shadow: none;"><i class="fas fa-save"></i> Save</button>
+              <button class="primary-btn" onclick="loadCanvasPreset()" style="padding: 8px 14px; font-size: 13px; background: rgba(245, 166, 35, 0.15); border: 1px solid var(--clash-gold); color: var(--clash-gold); box-shadow: none;"><i class="fas fa-folder-open"></i> Load</button>
+              <button class="primary-btn" onclick="exportCanvasJSON()" style="padding: 8px 14px; font-size: 13px; background: rgba(255, 255, 255, 0.05); border: 1px solid var(--border-subtle); color: var(--text-main); box-shadow: none;"><i class="fas fa-copy"></i> Export</button>
+              <button class="primary-btn" onclick="importCanvasJSON()" style="padding: 8px 14px; font-size: 13px; background: rgba(255, 255, 255, 0.05); border: 1px solid var(--border-subtle); color: var(--text-main); box-shadow: none;"><i class="fas fa-file-import"></i> Import</button>
               <button class="primary-btn" onclick="clearBaseCanvas()" style="padding: 8px 16px; font-size: 13px; background: var(--clash-elixir-gradient); box-shadow: none;">Reset Grid</button>
             </div>
           </div>

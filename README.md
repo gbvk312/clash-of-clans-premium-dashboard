@@ -9,8 +9,8 @@ A visually stunning, glassmorphic dark-mode dashboard for **Clash of Clans** pla
 ## ✨ Features
 
 * **🛡️ Home Command Center**: Instant overview of your designated home clan, featuring total trophies, active members, war records, and configurable widget cards.
-* **🛡️ Interactive Defensive Range Simulator (NEW!)**: An advanced drag-and-drop tactical grid to place core defenses (Eagle Artillery, Scattershot, Monolith, Inferno, Town Hall Weapon) and display interactive coverage range circles.
-* **⚔️ War Room Strategy Planner & Win Simulator (NEW!)**: A strategic command post to log target attack guidelines and calculate war win probabilities with context-aware commander verdicts.
+* **🛡️ Interactive Defensive Range Simulator (NEW!)**: An advanced drag-and-drop tactical grid to place core defenses and display interactive coverage range circles. Features local storage preset saving, clipboard JSON export/import sharing, and animated dash-drawing path arrows for planning entries.
+* **⚔️ War Room Strategy Planner & Combat Simulator (NEW!)**: Log targets, compute win percentages, and run a **real-time text combat execution simulator** with dynamic attack phase logs mapping drops, abilities, and final star counts.
 * **🎟️ Season Gold Pass Milestone Track (NEW!)**: Overhauled Battle Pass track with linear progress fill and interactive reward node hovers detailing custom skins, books, and runes.
 * **🔍 Bookmark Custom Nicknames (NEW!)**: Pinned sidebar targets support custom annotations and alias tags (e.g. "Main Clan", "Alt Account").
 * **📈 Donation Split Bar Charts & Trophy Doughnuts (NEW!)**: Comparative Chart.js analytics inside the Clan details view mapping members' given vs received donation balances.
@@ -19,14 +19,17 @@ A visually stunning, glassmorphic dark-mode dashboard for **Clash of Clans** pla
 * **📊 Player Head-to-Head Compare**: Compare two clashing profiles side-by-side on all major metrics, featuring automatic winner highlighting in vibrant HSL-green.
 * **🛡️ Community Layout Gallery**: A completely integrated tactical layout explorer. Filter community designs by Town Hall (TH 7-17) and base type (War, Home, CWL), upvote layouts dynamically, and copy layout links directly.
 * **🌎 Global & Local Leaderboards**: Search and browse top players and clans globally (International) or sorted by country regions (e.g. United States, India, Germany).
-* **🏰 Capital Raids Tracker**: Inspect your Clan Capital district layout levels and trace historical logs of Capital Gold gathered during Raid Weekends.
+* **🏰 Capital Raids Tracker & Planner**: Inspect district halls and trace history, plus utilize the new **GPA Upgrade Planner** to simulate allocating weekend looted Gold to Peak and District levels.
 * **📅 Clan Activity Heatmap**: Visual GitHub-style hourly/daily contribution calendar tracking mock or live activity indexes.
+* **🦸 Multi-Hero Loadout Sandbox**: Redesigned Ore modal allows slotting **two active gears simultaneously** for King, Queen, Warden, or Champion, tracking cumulative Shiny/Glowy/Starry upgrade costs.
 * **💝 Donation Leaderboard**: Beautiful HSL-gradient donation progress meters displaying members' given vs received metrics.
 * **📥 CSV Data Exporter**: Integrated single-click CSV export utility to download local spreadsheets for active clan rosters and war campaign results.
 * **🌗 Dual Theme Controls**: Easily toggle between dark obsidian mode and sleek light mode.
 * **⌨️ Keyboard Shortcuts**: Smooth dashboard traversal (`1`-`9` for tabs, `/` to focus search inputs, `Esc` to exit settings).
 
 ### 👑 Premium Upgrades & Architecture
+* **📲 Progressive Web App (PWA)**: Full offline-first static caching and mobile installation configurations via custom `sw.js` and `manifest.json`.
+* **🔊 Audio & Micro-interactions**: Integrated modern programmatic AudioContext SFX (including metallic blacksmith gear forge strikes) and native CSS View Transitions.
 * **🛡️ Strict Endpoint Allowlisting**: Added a robust regex validator inside the secure proxy server ([server.js](file:///Users/gbvk/Downloads/repo/clash_of_clans/server.js)) to block unauthorized endpoints.
 * **⚡ Live Latency Meter**: Responsive header pill measuring connection latency and displaying live health status dot.
 * **💾 LRU Cache Engine**: Advanced caching in [app.js](file:///Users/gbvk/Downloads/repo/clash_of_clans/app.js) with a hard-cap limit of `50` cached endpoints to protect rate-limits and optimize speeds.

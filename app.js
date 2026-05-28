@@ -507,6 +507,15 @@ function setupEventDelegation() {
 // DOM Elements
 document.addEventListener('DOMContentLoaded', () => {
   initApp();
+  
+  // Register PWA Service Worker
+  if ('serviceWorker' in navigator) {
+    window.addEventListener('load', () => {
+      navigator.serviceWorker.register('./sw.js')
+        .then(reg => console.log('🛡️ Clash Command Center Service Worker Registered successfully!', reg.scope))
+        .catch(err => console.warn('❌ Service Worker registration failed:', err));
+    });
+  }
 });
 
 function initApp() {
@@ -745,10 +754,19 @@ function switchTab(tabName) {
     item.setAttribute('aria-selected', isActive ? 'true' : 'false');
   });
 
-  // Update visible pane
-  document.querySelectorAll('.view-pane').forEach(pane => {
-    pane.classList.toggle('active', pane.id === `${tabName}-pane`);
-  });
+  const performTransition = () => {
+    // Update visible pane
+    document.querySelectorAll('.view-pane').forEach(pane => {
+      pane.classList.toggle('active', pane.id === `${tabName}-pane`);
+    });
+  };
+
+  // Implement native browser View Transitions if supported
+  if (document.startViewTransition) {
+    document.startViewTransition(performTransition);
+  } else {
+    performTransition();
+  }
 }
 
 // Settings Modal Setup
@@ -3288,6 +3306,68 @@ window.clearBaseCanvas = clearBaseCanvas;
 window.toggleDPSHeatmap = toggleDPSHeatmap;
 window.togglePathDrawing = togglePathDrawing;
 
+function saveCanvasPreset() {
+  localStorage.setItem('coc_canvas_preset_defenses', JSON.stringify(state.placedDefenses));
+  localStorage.setItem('coc_canvas_preset_paths', JSON.stringify(currentPathPoints));
+  showToast("Defensive grid setup saved to local storage!", "success");
+  if (typeof ClashSoundEngine !== 'undefined') ClashSoundEngine.playFanfare();
+}
+
+function loadCanvasPreset() {
+  const savedDef = localStorage.getItem('coc_canvas_preset_defenses');
+  const savedPath = localStorage.getItem('coc_canvas_preset_paths');
+  if (savedDef) {
+    state.placedDefenses = JSON.parse(savedDef);
+    currentPathPoints = savedPath ? JSON.parse(savedPath) : [];
+    renderPlacedDefenses();
+    renderStrategicPaths();
+    showToast("Defensive grid setup loaded successfully!", "success");
+    if (typeof ClashSoundEngine !== 'undefined') ClashSoundEngine.playHorn();
+  } else {
+    showToast("No saved presets found in local storage.", "error");
+  }
+}
+
+function exportCanvasJSON() {
+  const data = {
+    defenses: state.placedDefenses,
+    paths: currentPathPoints
+  };
+  const jsonStr = JSON.stringify(data);
+  navigator.clipboard.writeText(jsonStr).then(() => {
+    showToast("Layout JSON copied to clipboard!", "success");
+    if (typeof ClashSoundEngine !== 'undefined') ClashSoundEngine.playClick();
+  }).catch(() => {
+    showToast("Failed to copy layout JSON. Copy manually from console.", "error");
+    console.log("Exported Layout JSON:", jsonStr);
+  });
+}
+
+function importCanvasJSON() {
+  const jsonStr = prompt("Paste your exported layout JSON code here:");
+  if (!jsonStr) return;
+  try {
+    const data = JSON.parse(jsonStr);
+    if (data.defenses && Array.isArray(data.defenses)) {
+      state.placedDefenses = data.defenses;
+      currentPathPoints = data.paths && Array.isArray(data.paths) ? data.paths : [];
+      renderPlacedDefenses();
+      renderStrategicPaths();
+      showToast("Layout imported successfully!", "success");
+      if (typeof ClashSoundEngine !== 'undefined') ClashSoundEngine.playHorn();
+    } else {
+      showToast("Invalid layout JSON format.", "error");
+    }
+  } catch (e) {
+    showToast("Invalid JSON syntax. Load failed.", "error");
+  }
+}
+
+window.saveCanvasPreset = saveCanvasPreset;
+window.loadCanvasPreset = loadCanvasPreset;
+window.exportCanvasJSON = exportCanvasJSON;
+window.importCanvasJSON = importCanvasJSON;
+
 // ===== ⚔️ MODULE 1: WAR ROOM STRATEGY =====
 function initWarRoomPlanner() {
   // Load saved strategist notes
@@ -3610,6 +3690,32 @@ const ClashSoundEngine = {
         osc.stop(ctx.currentTime + idx * 0.08 + 0.3);
       });
     } catch (e) {}
+  },
+  playHammer() {
+    if (!this.enabled) return;
+    try {
+      const ctx = this.ctx;
+      const osc = ctx.createOscillator();
+      const gain = ctx.createGain();
+      const filter = ctx.createBiquadFilter();
+      
+      osc.type = 'triangle';
+      osc.frequency.setValueAtTime(220, ctx.currentTime);
+      osc.frequency.exponentialRampToValueAtTime(10, ctx.currentTime + 0.2);
+      
+      filter.type = 'peaking';
+      filter.frequency.setValueAtTime(1000, ctx.currentTime);
+      
+      gain.gain.setValueAtTime(0.12, ctx.currentTime);
+      gain.gain.linearRampToValueAtTime(0.001, ctx.currentTime + 0.25);
+      
+      osc.connect(filter);
+      filter.connect(gain);
+      gain.connect(ctx.destination);
+      
+      osc.start();
+      osc.stop(ctx.currentTime + 0.25);
+    } catch (e) {}
   }
 };
 
@@ -3760,146 +3866,314 @@ function closeOreForgeModal() {
   if (typeof ClashSoundEngine !== 'undefined') ClashSoundEngine.playClick();
 }
 
+// Global state values for Expanded Hero Loadout Builder
+state.forgeSelectedHero = "Barbarian King";
+state.forgeSlot1Gear = null;
+state.forgeSlot2Gear = null;
+state.activeForgeSlot = 1;
+state.forgeSlot1SimLevel = 1;
+state.forgeSlot2SimLevel = 1;
+
+// Define default gears if not present in player profile (e.g., Royal Champion)
+const DEFAULT_RC_GEARS = [
+  { name: "Royal Gem", level: 15, maxLevel: 18, village: "home", heroName: "Royal Champion" },
+  { name: "Seeking Shield", level: 15, maxLevel: 18, village: "home", heroName: "Royal Champion" },
+  { name: "Haste Vial", level: 12, maxLevel: 18, village: "home", heroName: "Royal Champion" }
+];
+
 function renderForgeEquipment(player) {
   const container = document.getElementById('forge-equipment-grid-container');
   if (!container) return;
 
-  const equipment = player.heroEquipment || [];
-  if (equipment.length === 0) {
-    container.innerHTML = `<p class="text-muted">No equipment logs found for player.</p>`;
-    return;
+  // Render Hero Tabs + Slotted Gears + Gear Palette
+  const heroesList = ["Barbarian King", "Archer Queen", "Grand Warden", "Royal Champion"];
+  
+  // Consolidate player equipment list
+  let allEquipment = [...(player.heroEquipment || [])];
+  
+  // Add RC gears if empty or not fully represented
+  if (!allEquipment.some(eq => eq.heroName === "Royal Champion")) {
+    allEquipment = allEquipment.concat(DEFAULT_RC_GEARS);
   }
 
-  container.innerHTML = equipment.map(eq => {
-    return `
-      <div class="forge-equipment-card" id="forge-card-${eq.name.replace(/\s+/g, '')}" onclick="selectForgeGear('${escapeHtml(eq.name)}')">
-        <div class="forge-level-pill">LVL ${eq.level}</div>
-        <div style="font-size: 28px; margin-bottom: 6px;">🛡️</div>
-        <div style="font-size: 13px; font-weight: 700; color: var(--text-main); white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">${escapeHtml(eq.name)}</div>
-        <div style="font-size: 10px; color: var(--text-muted); margin-top: 4px;">${escapeHtml(eq.heroName)}</div>
-      </div>
-    `;
-  }).join('');
+  // Filter gears by active hero
+  const heroGears = allEquipment.filter(eq => eq.heroName === state.forgeSelectedHero);
+
+  // Auto-slot first two items if not set or if hero changed
+  const firstGear = heroGears[0] || null;
+  const secondGear = heroGears[1] || null;
   
-  // Select first equipment by default
-  if (equipment.length > 0) {
-    selectForgeGear(equipment[0].name);
+  if (!state.forgeSlot1Gear || state.forgeSlot1Gear.heroName !== state.forgeSelectedHero) {
+    state.forgeSlot1Gear = firstGear;
+    state.forgeSlot1SimLevel = firstGear ? firstGear.level : 1;
   }
+  if (!state.forgeSlot2Gear || state.forgeSlot2Gear.heroName !== state.forgeSelectedHero) {
+    state.forgeSlot2Gear = secondGear;
+    state.forgeSlot2SimLevel = secondGear ? secondGear.level : 1;
+  }
+
+  // Render container layout
+  container.style.display = "flex";
+  container.style.flexDirection = "column";
+  container.style.gap = "16px";
+  container.style.maxHeight = "none";
+  container.style.overflow = "visible";
+
+  container.innerHTML = `
+    <!-- Hero Selection Tabs -->
+    <div style="display: flex; gap: 6px; flex-wrap: wrap; border-bottom: 1px solid var(--border-subtle); padding-bottom: 12px;">
+      ${heroesList.map(hero => `
+        <button class="primary-btn" onclick="selectForgeHero('${escapeHtml(hero)}')" style="padding: 6px 12px; font-size: 11px; font-weight: bold; background: ${state.forgeSelectedHero === hero ? 'var(--clash-gold-gradient)' : 'rgba(255,255,255,0.03)'}; color: ${state.forgeSelectedHero === hero ? '#000' : 'var(--text-muted)'}; border-color: ${state.forgeSelectedHero === hero ? '#ffe066' : 'var(--border-subtle)'}; box-shadow: none;">
+          ${escapeHtml(hero)}
+        </button>
+      `).join('')}
+    </div>
+
+    <!-- Active Slotted Gears Row -->
+    <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 12px;">
+      <div class="forge-equipment-card ${state.activeForgeSlot === 1 ? 'selected' : ''}" onclick="toggleActiveForgeSlot(1)" style="border-style: ${state.activeForgeSlot === 1 ? 'solid' : 'dashed'}; border-color: ${state.activeForgeSlot === 1 ? 'var(--clash-gold)' : 'var(--border-subtle)'}; min-height: 85px;">
+        <span style="font-size: 9px; text-transform: uppercase; color: var(--text-muted); position: absolute; top: 4px; left: 8px;">Active Slot 1</span>
+        ${state.forgeSlot1Gear ? `
+          <div class="forge-level-pill" style="top: 4px; right: 4px;">LVL ${state.forgeSlot1SimLevel}</div>
+          <div style="font-size: 20px; margin-top: 14px;">🗡️</div>
+          <div style="font-size: 12px; font-weight: bold; margin-top: 4px;">${escapeHtml(state.forgeSlot1Gear.name)}</div>
+        ` : `
+          <div style="color: var(--text-muted); font-size: 11px; margin-top: 24px;">Empty Slot</div>
+        `}
+      </div>
+      <div class="forge-equipment-card ${state.activeForgeSlot === 2 ? 'selected' : ''}" onclick="toggleActiveForgeSlot(2)" style="border-style: ${state.activeForgeSlot === 2 ? 'solid' : 'dashed'}; border-color: ${state.activeForgeSlot === 2 ? 'var(--clash-gold)' : 'var(--border-subtle)'}; min-height: 85px;">
+        <span style="font-size: 9px; text-transform: uppercase; color: var(--text-muted); position: absolute; top: 4px; left: 8px;">Active Slot 2</span>
+        ${state.forgeSlot2Gear ? `
+          <div class="forge-level-pill" style="top: 4px; right: 4px;">LVL ${state.forgeSlot2SimLevel}</div>
+          <div style="font-size: 20px; margin-top: 14px;">⚡</div>
+          <div style="font-size: 12px; font-weight: bold; margin-top: 4px;">${escapeHtml(state.forgeSlot2Gear.name)}</div>
+        ` : `
+          <div style="color: var(--text-muted); font-size: 11px; margin-top: 24px;">Empty Slot</div>
+        `}
+      </div>
+    </div>
+
+    <!-- Available Gear Palette -->
+    <div>
+      <h5 style="font-size: 11px; color: var(--text-muted); text-transform: uppercase; margin-bottom: 8px;">Slotted Gear Inventory</h5>
+      <div class="forge-equipment-grid" style="grid-template-columns: repeat(auto-fill, minmax(110px, 1fr));">
+        ${heroGears.map(eq => {
+          const isSlotted = (state.forgeSlot1Gear && state.forgeSlot1Gear.name === eq.name) || (state.forgeSlot2Gear && state.forgeSlot2Gear.name === eq.name);
+          return `
+            <div class="forge-equipment-card" onclick="slotForgeGear('${escapeHtml(eq.name)}')" style="opacity: ${isSlotted ? 0.4 : 1}; pointer-events: ${isSlotted ? 'none' : 'auto'}; border-color: var(--border-subtle);">
+              <div class="forge-level-pill">LVL ${eq.level}</div>
+              <div style="font-size: 24px; margin-bottom: 4px;">🛡️</div>
+              <div style="font-size: 11px; font-weight: 700; text-overflow: ellipsis; overflow: hidden; white-space: nowrap;">${escapeHtml(eq.name)}</div>
+            </div>
+          `;
+        }).join('')}
+      </div>
+    </div>
+  `;
+
+  updateForgeControlPanel();
 }
 
-function selectForgeGear(gearName) {
+function selectForgeHero(hero) {
+  state.forgeSelectedHero = hero;
+  state.forgeSlot1Gear = null;
+  state.forgeSlot2Gear = null;
+  state.activeForgeSlot = 1;
+  const player = state.currentForgePlayer;
+  renderForgeEquipment(player);
+  if (typeof ClashSoundEngine !== 'undefined') ClashSoundEngine.playClick();
+}
+
+function toggleActiveForgeSlot(slotNum) {
+  state.activeForgeSlot = slotNum;
+  const player = state.currentForgePlayer;
+  renderForgeEquipment(player);
+  if (typeof ClashSoundEngine !== 'undefined') ClashSoundEngine.playClick();
+}
+
+function slotForgeGear(gearName) {
   const player = state.currentForgePlayer;
   if (!player) return;
 
-  const eq = player.heroEquipment.find(e => e.name === gearName);
+  let allEquipment = [...(player.heroEquipment || [])];
+  if (!allEquipment.some(eq => eq.heroName === "Royal Champion")) {
+    allEquipment = allEquipment.concat(DEFAULT_RC_GEARS);
+  }
+
+  const eq = allEquipment.find(e => e.name === gearName && e.heroName === state.forgeSelectedHero);
   if (!eq) return;
 
-  activeForgeGear = eq;
-  currentSimulatedForgeLevel = eq.level;
-
-  // Highlight active cards
-  const container = document.getElementById('forge-equipment-grid-container');
-  if (container) {
-    container.querySelectorAll('.forge-equipment-card').forEach(c => c.classList.remove('selected'));
+  if (state.activeForgeSlot === 1) {
+    // Swap/Ensure no duplicate slotted
+    if (state.forgeSlot2Gear && state.forgeSlot2Gear.name === eq.name) {
+      state.forgeSlot2Gear = null;
+    }
+    state.forgeSlot1Gear = eq;
+    state.forgeSlot1SimLevel = eq.level;
+    state.activeForgeSlot = 2; // Auto-focus next slot
+  } else {
+    if (state.forgeSlot1Gear && state.forgeSlot1Gear.name === eq.name) {
+      state.forgeSlot1Gear = null;
+    }
+    state.forgeSlot2Gear = eq;
+    state.forgeSlot2SimLevel = eq.level;
+    state.activeForgeSlot = 1; // Auto-focus first slot
   }
-  const activeCard = document.getElementById(`forge-card-${eq.name.replace(/\s+/g, '')}`);
-  if (activeCard) activeCard.classList.add('selected');
 
-  updateForgeControlPanel();
+  renderForgeEquipment(player);
   if (typeof ClashSoundEngine !== 'undefined') ClashSoundEngine.playClick();
 }
 
 function updateForgeControlPanel() {
   const panel = document.getElementById('forge-control-panel-container');
-  if (!panel || !activeForgeGear) return;
+  if (!panel) return;
 
-  // Epic equipment cost limits vs Common
-  const isEpic = activeForgeGear.name === "Giant Gauntlet" || activeForgeGear.name === "Frozen Arrow";
-  const maxLvl = isEpic ? 27 : 18;
-  
-  // Calculate cumulative Ores needed for next step upgrades
-  let shinyCost = 0;
-  let glowyCost = 0;
-  let starryCost = 0;
+  // Cumulative Ore Costs
+  let totalShiny = 0;
+  let totalGlowy = 0;
+  let totalStarry = 0;
 
-  if (currentSimulatedForgeLevel < maxLvl) {
-    const diff = currentSimulatedForgeLevel - activeForgeGear.level;
-    // Basic progression progression costs mapping
+  // Combined stats
+  let totalDpsGained = 0;
+  let totalHpGained = 0;
+
+  const calculateGearOres = (gear, targetLvl) => {
+    if (!gear) return { s: 0, g: 0, st: 0 };
+    const isEpic = gear.name === "Giant Gauntlet" || gear.name === "Frozen Arrow";
+    const maxLvl = isEpic ? 27 : 18;
+    const diff = targetLvl - gear.level;
+    if (diff <= 0) return { s: 0, g: 0, st: 0 };
+
     const baseShiny = isEpic ? 240 : 120;
     const baseGlowy = isEpic ? 30 : 15;
     const baseStarry = isEpic ? 6 : 0;
-    
-    shinyCost = Math.max(0, (diff + 1) * baseShiny);
-    glowyCost = Math.max(0, (diff + 1) * baseGlowy);
-    starryCost = Math.max(0, (diff + 1) * baseStarry);
-  }
 
-  // Calculate simulated stat boosts
-  const currentDpsPercent = 4 * currentSimulatedForgeLevel;
-  const currentHpRecovery = 12 * currentSimulatedForgeLevel;
+    return {
+      s: (diff + 1) * baseShiny,
+      g: (diff + 1) * baseGlowy,
+      st: (diff + 1) * baseStarry
+    };
+  };
+
+  const getStats = (gear, lvl) => {
+    if (!gear) return { dps: 0, hp: 0 };
+    return {
+      dps: 4 * lvl,
+      hp: 12 * lvl
+    };
+  };
+
+  const o1 = calculateGearOres(state.forgeSlot1Gear, state.forgeSlot1SimLevel);
+  const o2 = calculateGearOres(state.forgeSlot2Gear, state.forgeSlot2SimLevel);
+
+  totalShiny = o1.s + o2.s;
+  totalGlowy = o1.g + o2.g;
+  totalStarry = o1.st + o2.st;
+
+  const s1 = getStats(state.forgeSlot1Gear, state.forgeSlot1SimLevel);
+  const s2 = getStats(state.forgeSlot2Gear, state.forgeSlot2SimLevel);
+
+  totalDpsGained = s1.dps + s2.dps;
+  totalHpGained = s1.hp + s2.hp;
+
+  const epic1 = state.forgeSlot1Gear && (state.forgeSlot1Gear.name === "Giant Gauntlet" || state.forgeSlot1Gear.name === "Frozen Arrow");
+  const epic2 = state.forgeSlot2Gear && (state.forgeSlot2Gear.name === "Giant Gauntlet" || state.forgeSlot2Gear.name === "Frozen Arrow");
 
   panel.innerHTML = `
     <div>
-      <h4 class="gold-gradient-text" style="font-size: 16px; font-weight: 800; margin: 0;">${escapeHtml(activeForgeGear.name)}</h4>
-      <span style="font-size: 11px; color: var(--text-muted);">${escapeHtml(activeForgeGear.heroName)} &bull; ${isEpic ? 'Epic Rarity' : 'Common Rarity'}</span>
+      <h4 class="gold-gradient-text" style="font-size: 16px; font-weight: 800; margin: 0;">🛠️ Loadout Upgrade Simulator</h4>
+      <span style="font-size: 11px; color: var(--text-muted);">${state.forgeSelectedHero} &bull; Synergy Optimizer</span>
     </div>
 
-    <div class="level-spinner-row">
-      <button class="level-spinner-btn" onclick="adjustForgeLevel(-1)">&minus;</button>
-      <div style="text-align: center;">
-        <span style="font-size: 10px; color: var(--text-muted); text-transform: uppercase;">Simulated Forge Level</span>
-        <div style="font-size: 20px; font-weight: 800; color: var(--clash-gold);">LVL ${currentSimulatedForgeLevel} / ${maxLvl}</div>
+    <!-- Slotted 1 controls -->
+    ${state.forgeSlot1Gear ? `
+      <div style="background: rgba(255,255,255,0.02); border: 1px solid var(--border-subtle); padding: 10px; border-radius: 8px;">
+        <div class="flex-between" style="font-size: 12px; margin-bottom: 6px;">
+          <strong>Slot 1: ${escapeHtml(state.forgeSlot1Gear.name)}</strong>
+          <span style="font-size: 10px; color: var(--text-muted);">Max Level: ${epic1 ? 27 : 18}</span>
+        </div>
+        <div class="level-spinner-row" style="padding: 4px 10px;">
+          <button class="level-spinner-btn" style="width:24px; height:24px;" onclick="adjustLoadoutLevel(1, -1)">&minus;</button>
+          <div style="font-size: 13px; font-weight: bold;">LVL ${state.forgeSlot1SimLevel}</div>
+          <button class="level-spinner-btn" style="width:24px; height:24px;" onclick="adjustLoadoutLevel(1, 1)">&plus;</button>
+        </div>
       </div>
-      <button class="level-spinner-btn" onclick="adjustForgeLevel(1)">&plus;</button>
-    </div>
+    ` : ''}
+
+    <!-- Slotted 2 controls -->
+    ${state.forgeSlot2Gear ? `
+      <div style="background: rgba(255,255,255,0.02); border: 1px solid var(--border-subtle); padding: 10px; border-radius: 8px;">
+        <div class="flex-between" style="font-size: 12px; margin-bottom: 6px;">
+          <strong>Slot 2: ${escapeHtml(state.forgeSlot2Gear.name)}</strong>
+          <span style="font-size: 10px; color: var(--text-muted);">Max Level: ${epic2 ? 27 : 18}</span>
+        </div>
+        <div class="level-spinner-row" style="padding: 4px 10px;">
+          <button class="level-spinner-btn" style="width:24px; height:24px;" onclick="adjustLoadoutLevel(2, -1)">&minus;</button>
+          <div style="font-size: 13px; font-weight: bold;">LVL ${state.forgeSlot2SimLevel}</div>
+          <button class="level-spinner-btn" style="width:24px; height:24px;" onclick="adjustLoadoutLevel(2, 1)">&plus;</button>
+        </div>
+      </div>
+    ` : ''}
 
     <div>
-      <h5 style="font-size: 12px; color: var(--text-muted); margin-bottom: 8px;">Upgrade Cost to Target Level</h5>
+      <h5 style="font-size: 11px; color: var(--text-muted); margin-bottom: 8px; text-transform: uppercase;">Aggregated Cost Tracker</h5>
       <div class="ore-cost-badge-row">
-        <div class="ore-cost-badge">
-          <i class="fas fa-star" style="color: #4a90e2; font-size: 16px;"></i>
-          <div>${shinyCost}</div>
-          <span>Shiny Ore</span>
+        <div class="ore-cost-badge" style="padding: 6px 4px;">
+          <i class="fas fa-star" style="color: #4a90e2; font-size: 14px;"></i>
+          <div style="font-size:12px;">${totalShiny}</div>
+          <span style="font-size:9px;">Shiny</span>
         </div>
-        <div class="ore-cost-badge">
-          <i class="fas fa-star" style="color: #ec3b83; font-size: 16px;"></i>
-          <div>${glowyCost}</div>
-          <span>Glowy Ore</span>
+        <div class="ore-cost-badge" style="padding: 6px 4px;">
+          <i class="fas fa-star" style="color: #ec3b83; font-size: 14px;"></i>
+          <div style="font-size:12px;">${totalGlowy}</div>
+          <span style="font-size:9px;">Glowy</span>
         </div>
-        <div class="ore-cost-badge">
-          <i class="fas fa-star" style="color: var(--clash-gold); font-size: 16px;"></i>
-          <div>${starryCost}</div>
-          <span>Starry Ore</span>
+        <div class="ore-cost-badge" style="padding: 6px 4px;">
+          <i class="fas fa-star" style="color: var(--clash-gold); font-size: 14px;"></i>
+          <div style="font-size:12px;">${totalStarry}</div>
+          <span style="font-size:9px;">Starry</span>
         </div>
       </div>
     </div>
 
-    <div style="background: rgba(0,0,0,0.15); border: 1px solid var(--border-subtle); border-radius: 10px; padding: 12px;">
-      <h5 style="font-size: 11px; color: var(--text-muted); text-transform: uppercase; margin-bottom: 8px;">Active Sandbox Stats</h5>
+    <div style="background: rgba(0,0,0,0.2); border: 1px solid var(--border-subtle); border-radius: 10px; padding: 12px;">
+      <h5 style="font-size: 11px; color: var(--text-muted); text-transform: uppercase; margin-bottom: 8px;">Synergy Loadout Stats</h5>
       <div class="flex-between border-bottom-subtle pb-6" style="font-size: 12px; margin-bottom: 6px;">
-        <span>Passive Damage Increase</span>
-        <strong style="color: #4adb86;">+${currentDpsPercent}% Damage</strong>
+        <span>Total Passive DPS Boost</span>
+        <strong style="color: #4adb86;">+${totalDpsGained}% DPS</strong>
       </div>
       <div class="flex-between" style="font-size: 12px;">
-        <span>Active HP Regeneration</span>
-        <strong style="color: #4adb86;">+${currentHpRecovery} Hitpoints</strong>
+        <span>Total HP Recovery Boost</span>
+        <strong style="color: #4adb86;">+${totalHpGained} HP</strong>
       </div>
     </div>
   `;
 }
 
-function adjustForgeLevel(delta) {
-  if (!activeForgeGear) return;
-  const isEpic = activeForgeGear.name === "Giant Gauntlet" || activeForgeGear.name === "Frozen Arrow";
-  const maxLvl = isEpic ? 27 : 18;
-
-  const target = currentSimulatedForgeLevel + delta;
-  if (target >= activeForgeGear.level && target <= maxLvl) {
-    currentSimulatedForgeLevel = target;
-    updateForgeControlPanel();
-    if (typeof ClashSoundEngine !== 'undefined') ClashSoundEngine.playClick();
+function adjustLoadoutLevel(slot, delta) {
+  if (slot === 1 && state.forgeSlot1Gear) {
+    const isEpic = state.forgeSlot1Gear.name === "Giant Gauntlet" || state.forgeSlot1Gear.name === "Frozen Arrow";
+    const maxLvl = isEpic ? 27 : 18;
+    const target = state.forgeSlot1SimLevel + delta;
+    if (target >= state.forgeSlot1Gear.level && target <= maxLvl) {
+      state.forgeSlot1SimLevel = target;
+    }
+  } else if (slot === 2 && state.forgeSlot2Gear) {
+    const isEpic = state.forgeSlot2Gear.name === "Giant Gauntlet" || state.forgeSlot2Gear.name === "Frozen Arrow";
+    const maxLvl = isEpic ? 27 : 18;
+    const target = state.forgeSlot2SimLevel + delta;
+    if (target >= state.forgeSlot2Gear.level && target <= maxLvl) {
+      state.forgeSlot2SimLevel = target;
+    }
   }
+  updateForgeControlPanel();
+  if (typeof ClashSoundEngine !== 'undefined') ClashSoundEngine.playHammer();
 }
+
+window.selectForgeHero = selectForgeHero;
+window.toggleActiveForgeSlot = toggleActiveForgeSlot;
+window.slotForgeGear = slotForgeGear;
+window.adjustLoadoutLevel = adjustLoadoutLevel;
 
 // ===== 🔔 DISCORD WEBHOOK SYSTEM =====
 function triggerWebhookTest() {
@@ -4267,10 +4541,58 @@ function premiumRenderCapital(capital) {
             </div>
           </div>
         </div>
+
+        <div class="results-card" style="min-height: auto;">
+          <h3>🏰 Capital Gold Upgrade Planner</h3>
+          <p style="font-size: 12px; color: var(--text-muted); margin-bottom: 12px;">Simulate allocating Capital Gold to leveling district halls. Enter cumulative looted gold to estimate forecasts.</p>
+          <div style="display: flex; flex-direction: column; gap: 12px;">
+            <div class="input-group">
+              <label>Capital Gold Allocated</label>
+              <input type="number" id="cap-gold-alloc" value="25000" style="width: 100%; background: var(--bg-stone); border: 1px solid var(--border-subtle); color: var(--text-main); padding: 8px 12px; border-radius: 8px;" oninput="recalculateCapitalUpgrades()">
+            </div>
+            <div style="background: rgba(255,255,255,0.02); border: 1px solid var(--border-subtle); padding: 12px; border-radius: 8px; font-size: 13px;">
+              <div class="flex-between">
+                <span>District Peak Upgrade Target</span>
+                <strong style="color: var(--clash-gold);">Level 10 (Max Peak)</strong>
+              </div>
+              <div class="flex-between" style="margin-top: 6px;">
+                <span>Estimated Upgrade Progress</span>
+                <strong style="color: var(--clash-gold);" id="cap-upgrade-percentage">50% (Remaining: 25,000 gold)</strong>
+              </div>
+              <div class="flex-between" style="margin-top: 6px;">
+                <span>Estimated Level Up Time</span>
+                <strong style="color: #4a90e2;" id="cap-upgrade-time">4 Days needed (at ~8k GPA/day)</strong>
+              </div>
+            </div>
+          </div>
+        </div>
       </div>
     </div>
   `;
+
+  setTimeout(recalculateCapitalUpgrades, 20);
 }
+
+function recalculateCapitalUpgrades() {
+  const input = document.getElementById('cap-gold-alloc');
+  if (!input) return;
+  const val = parseInt(input.value) || 0;
+  
+  const percentageEl = document.getElementById('cap-upgrade-percentage');
+  const timeEl = document.getElementById('cap-upgrade-time');
+  if (!percentageEl || !timeEl) return;
+
+  const costToUpgrade = 50000;
+  const remaining = Math.max(0, costToUpgrade - val);
+  
+  const progress = Math.min(100, Math.floor((val / costToUpgrade) * 100));
+  percentageEl.textContent = `${progress}% (Remaining: ${remaining.toLocaleString()} gold)`;
+  percentageEl.style.color = progress >= 100 ? '#4adb86' : 'var(--clash-gold)';
+
+  const daysNeeded = Math.ceil(remaining / 8000);
+  timeEl.textContent = progress >= 100 ? "Level Up Ready!" : `${daysNeeded} Days needed (at ~8k GPA/day)`;
+}
+window.recalculateCapitalUpgrades = recalculateCapitalUpgrades;
 
 function toggleCapitalSubTab(tab) {
   const distEl = document.getElementById('capital-subview-districts');
@@ -4531,6 +4853,116 @@ function renderAICoachBoard() {
   }
 }
 
+function renderWarBattleSimulator() {
+  const container = document.getElementById('war-subview-strategy');
+  if (!container) return;
+
+  const panel = container.querySelector('.war-room-panel');
+  if (!panel) return;
+
+  // Check if already exists
+  let simDiv = document.getElementById('war-battle-simulator-card');
+  if (simDiv) return;
+
+  simDiv = document.createElement('div');
+  simDiv.id = 'war-battle-simulator-card';
+  simDiv.className = 'strategy-board';
+  simDiv.style.gridColumn = 'span 2';
+  simDiv.style.marginTop = '24px';
+
+  simDiv.innerHTML = `
+    <div style="border-bottom: 1px solid var(--border-subtle); padding-bottom: 12px; margin-bottom: 16px; display: flex; justify-content: space-between; align-items: center;">
+      <div>
+        <h3 class="gold-gradient-text" style="font-size: 18px; font-weight: 800; margin: 0;"><i class="fas fa-gamepad"></i> Tactical Combat Simulator</h3>
+        <span style="font-size: 11px; color: var(--text-muted);">Simulate tactical attack execution steps in real-time</span>
+      </div>
+      <select id="sim-troop-comp" style="background: var(--bg-stone-medium); border: 1px solid var(--border-subtle); color: #fff; padding: 4px 8px; border-radius: 6px; font-size: 12px;">
+        <option value="Lalo">Queen Charge Lavaloon</option>
+        <option value="Hybrid">Hog Miner Hybrid</option>
+        <option value="Edrags">Electro Dragons</option>
+        <option value="Smash">Yeti Titan Smash</option>
+      </select>
+    </div>
+
+    <div style="display: flex; flex-direction: column; gap: 16px;">
+      <button class="primary-btn" onclick="startCombatSimulation()" style="width: 100%; font-size: 14px; padding: 10px; background: var(--clash-gold-gradient); color: #000; font-weight: 800;">
+        ⚔️ Execute Simulation Campaign
+      </button>
+
+      <!-- Simulated terminal window -->
+      <div id="sim-terminal-screen" style="background: #090b0e; border: 1px solid var(--border-subtle); border-radius: 8px; padding: 16px; min-height: 180px; max-height: 250px; overflow-y: auto; font-family: monospace; font-size: 12px; color: #a5d6ff; line-height: 1.6;">
+        [Console Ready] Select a troop composition and click Execute above to launch simulated campaign...
+      </div>
+    </div>
+  `;
+
+  panel.appendChild(simDiv);
+}
+
+let activeCombatInterval = null;
+
+function startCombatSimulation() {
+  const screen = document.getElementById('sim-terminal-screen');
+  if (!screen) return;
+
+  if (activeCombatInterval) {
+    clearInterval(activeCombatInterval);
+  }
+
+  const comp = document.getElementById('sim-troop-comp').value;
+  const attackPower = parseInt(document.getElementById('sim-attack-strength').value);
+  const defensePower = parseInt(document.getElementById('sim-defense-strength').value);
+  
+  // Calculate probability
+  const ratio = attackPower / (attackPower + defensePower);
+  const starsProbability = ratio * 100;
+
+  let stars = 1;
+  if (starsProbability > 75) stars = 3;
+  else if (starsProbability > 45) stars = 2;
+
+  let stepIndex = 0;
+  
+  // Battle step timelines mapping
+  const steps = [
+    { time: "0s", log: `[SYSTEM] Preparing attack layout corridor. Troop layout composition: ${comp}.`, sound: "click" },
+    { time: "5s", log: `[DROP] funnel units dropped at 3 o'clock positions. Funnels clearance started.`, sound: "click" },
+    { time: "20s", log: `[DEPLOY] Main heroes deployed. Grand Warden in ground aura coverage mode.`, sound: "click" },
+    { time: "45s", log: `[ENGAGE] Core defense boundary reached. Opponent CC dragon pulled! Poison spell dropped.`, sound: "click" },
+    { time: "70s", log: `[SPELL] Rage Spell dropped in center corridor. Monolith laser locked. Warden ability active!`, sound: "fanfare" },
+    { time: "105s", log: `[BREACH] Town Hall structure cleared! 50% threshold secured. 2 Stars achieved!`, sound: "horn" },
+    { time: "140s", log: `[CLEANUP] Archer Queen sweeping defensive deadzones. Minions dropped.`, sound: "click" },
+    { time: "175s", log: `[BATTLE ENDED] Campaign concluded successfully! Final Star Rating: ${stars} Stars! (${stars === 3 ? '100% destruction!' : Math.floor(60 + Math.random() * 30) + '% destruction'})`, sound: stars === 3 ? "fanfare" : "horn" }
+  ];
+
+  screen.innerHTML = `<span style="color:#4adb86;">[BATTLE STARTED] Launching combat simulation campaign...</span><br>`;
+  if (typeof ClashSoundEngine !== 'undefined') ClashSoundEngine.playClick();
+
+  activeCombatInterval = setInterval(() => {
+    if (stepIndex >= steps.length) {
+      clearInterval(activeCombatInterval);
+      activeCombatInterval = null;
+      return;
+    }
+
+    const s = steps[stepIndex];
+    screen.innerHTML += `<span style="color:#888;">[${s.time}]</span> <span style="color:${s.log.includes('SYSTEM') ? '#a5d6ff' : s.log.includes('BATTLE') ? '#4adb86' : '#fff'};">${escapeHtml(s.log)}</span><br>`;
+    screen.scrollTop = screen.scrollHeight;
+
+    // Trigger programmatic chimes/horns matching steps
+    if (typeof ClashSoundEngine !== 'undefined') {
+      if (s.sound === "click") ClashSoundEngine.playClick();
+      else if (s.sound === "fanfare") ClashSoundEngine.playFanfare();
+      else if (s.sound === "horn") ClashSoundEngine.playHorn();
+    }
+
+    stepIndex++;
+  }, 1200);
+}
+
+window.renderWarBattleSimulator = renderWarBattleSimulator;
+window.startCombatSimulation = startCombatSimulation;
+
 // Bind Legends load in tab navigation
 document.addEventListener('DOMContentLoaded', () => {
   // Bind active tabs switcher
@@ -4553,7 +4985,10 @@ document.addEventListener('DOMContentLoaded', () => {
       btn.addEventListener('click', () => {
         const sub = btn.getAttribute('data-subtab');
         if (sub === 'strategy') {
-          setTimeout(renderAICoachBoard, 50);
+          setTimeout(() => {
+            renderAICoachBoard();
+            renderWarBattleSimulator();
+          }, 50);
         }
       });
     });
