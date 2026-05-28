@@ -1818,6 +1818,9 @@ function renderPlayer(player) {
           </div>
         </div>
       </div>
+      
+      <!-- Progression Audit Card -->
+      ${renderProgressionAudit(player)}
     </div>
   `;
 
@@ -3044,19 +3047,29 @@ function copyLayoutLink(link) {
 state.placedDefenses = [];
 let selectedDefenseType = 'eagle';
 let selectedDefenseRange = 120;
+let isDrawingPathMode = false;
+let currentPathPoints = [];
+let isDpsHeatmapActive = false;
 
 function initBaseCanvas() {
   const container = document.getElementById('base-grid-container');
   if (!container) return;
 
-  // Add click to place defense
-  container.addEventListener('click', (e) => {
-    // If clicking a delete button or a placed structure, don't place another structure
+  // Add click to place defense or draw path points
+  container.addEventListener('mousedown', (e) => {
+    // If clicking a delete button or placed structure, do not place
     if (e.target.closest('.placed-structure') || e.target.closest('.structure-delete')) return;
 
     const bounds = container.getBoundingClientRect();
     const x = ((e.clientX - bounds.left) / bounds.width) * 100;
     const y = ((e.clientY - bounds.top) / bounds.height) * 100;
+
+    if (isDrawingPathMode) {
+      currentPathPoints.push({ x: x.toFixed(2), y: y.toFixed(2) });
+      renderStrategicPaths();
+      if (typeof ClashSoundEngine !== 'undefined') ClashSoundEngine.playClick();
+      return;
+    }
 
     const newDefense = {
       id: Date.now(),
@@ -3068,6 +3081,7 @@ function initBaseCanvas() {
 
     state.placedDefenses.push(newDefense);
     renderPlacedDefenses();
+    if (typeof ClashSoundEngine !== 'undefined') ClashSoundEngine.playClick();
     showToast(`Placed ${selectedDefenseType.toUpperCase()} on defensive grid!`, "success");
   });
 
@@ -3075,11 +3089,18 @@ function initBaseCanvas() {
   const toolbar = document.querySelector('.canvas-toolbar');
   if (toolbar) {
     toolbar.querySelectorAll('.palette-btn').forEach(btn => {
+      // Don't bind to Heatmap or Draw path triggers which have custom inline handlers
+      if (btn.id === 'canvas-heatmap-toggle-btn' || btn.id === 'canvas-draw-path-btn') return;
       btn.addEventListener('click', () => {
-        toolbar.querySelectorAll('.palette-btn').forEach(b => b.classList.remove('selected'));
+        toolbar.querySelectorAll('.palette-btn').forEach(b => {
+          if (b.id !== 'canvas-heatmap-toggle-btn' && b.id !== 'canvas-draw-path-btn') b.classList.remove('selected');
+        });
         btn.classList.add('selected');
         selectedDefenseType = btn.getAttribute('data-defense');
         selectedDefenseRange = parseInt(btn.getAttribute('data-range'));
+        
+        // Turn off path drawing mode when selecting a new defense to place
+        if (isDrawingPathMode) togglePathDrawing();
       });
     });
   }
@@ -3089,8 +3110,11 @@ function renderPlacedDefenses() {
   const container = document.getElementById('base-grid-container');
   if (!container) return;
 
-  // Remove existing structures & ranges, but keep grid lines
+  // Remove existing structures & ranges, but keep grid lines and SVG overlay
   container.querySelectorAll('.placed-structure, .range-circle').forEach(el => el.remove());
+
+  // Render heatmap class toggle
+  container.classList.toggle('dps-heatmap-active', isDpsHeatmapActive);
 
   state.placedDefenses.forEach(def => {
     let icon = '🛡️';
@@ -3099,26 +3123,49 @@ function renderPlacedDefenses() {
     else if (def.type === 'monolith') icon = '💀';
     else if (def.type === 'inferno') icon = '🔥';
     else if (def.type === 'townhall') icon = '🏰';
+    else if (def.type === 'tornado') icon = '🌪️';
+    else if (def.type === 'giantbomb') icon = '💣';
+    else if (def.type === 'airmine') icon = '👻';
 
     // Renders the structure
     const struct = document.createElement('div');
     struct.className = 'placed-structure';
     struct.style.left = `${def.x}%`;
     struct.style.top = `${def.y}%`;
+    
+    // Add custom coloring for traps
+    if (def.type === 'tornado' || def.type === 'giantbomb' || def.type === 'airmine') {
+      struct.style.background = 'var(--clash-dark-elixir-gradient)';
+      struct.style.boxShadow = '0 0 10px rgba(139,68,253,0.5)';
+    }
+
     struct.innerHTML = `
       ${icon}
       <button class="structure-delete" onclick="removeDefense(${def.id}, event)">&times;</button>
     `;
 
-    // Render range circle (which gets shown on hover / click)
+    // Render range circle
     const range = document.createElement('div');
     range.className = `range-circle ${def.type}`;
     range.style.left = `${def.x}%`;
     range.style.top = `${def.y}%`;
-    // We scale range with respect to layout width (say 400px maximum)
     range.style.width = `${def.range * 2}px`;
     range.style.height = `${def.range * 2}px`;
-    range.style.opacity = '0.35'; // Keep it visible so they can see overall defense covers!
+    
+    // Trap ranges should look slightly different
+    if (def.type === 'tornado' || def.type === 'giantbomb' || def.type === 'airmine') {
+      range.style.border = '1px dotted #8b44fd';
+      range.style.background = 'rgba(139, 68, 253, 0.03)';
+    }
+
+    if (isDpsHeatmapActive) {
+      // Heatmap mode makes ranges look more intense and overlapping
+      range.style.opacity = '0.5';
+      range.style.background = 'rgba(236, 59, 131, 0.08)';
+      range.style.borderColor = 'rgba(236, 59, 131, 0.6)';
+    } else {
+      range.style.opacity = '0.35';
+    }
 
     // Add drag support
     setupDragDrop(struct, def);
@@ -3155,6 +3202,9 @@ function setupDragDrop(el, def) {
   });
 
   document.addEventListener('mouseup', () => {
+    if (isDragging && typeof ClashSoundEngine !== 'undefined') {
+      ClashSoundEngine.playClick();
+    }
     isDragging = false;
   });
 }
@@ -3163,17 +3213,80 @@ function removeDefense(id, event) {
   if (event) event.stopPropagation();
   state.placedDefenses = state.placedDefenses.filter(def => def.id !== id);
   renderPlacedDefenses();
+  if (typeof ClashSoundEngine !== 'undefined') ClashSoundEngine.playClick();
   showToast("Removed defense from grid", "info");
 }
 
 function clearBaseCanvas() {
   state.placedDefenses = [];
+  currentPathPoints = [];
   renderPlacedDefenses();
+  renderStrategicPaths();
+  if (typeof ClashSoundEngine !== 'undefined') ClashSoundEngine.playHorn();
   showToast("Defensive grid cleared!", "info");
+}
+
+function toggleDPSHeatmap() {
+  isDpsHeatmapActive = !isDpsHeatmapActive;
+  const btn = document.getElementById('canvas-heatmap-toggle-btn');
+  if (btn) {
+    btn.textContent = isDpsHeatmapActive ? "Heatmap: ON" : "Heatmap: OFF";
+    btn.style.background = isDpsHeatmapActive ? 'var(--clash-gold-gradient)' : 'rgba(245, 166, 35, 0.15)';
+    btn.style.color = isDpsHeatmapActive ? '#000' : 'var(--clash-gold)';
+  }
+  renderPlacedDefenses();
+  if (typeof ClashSoundEngine !== 'undefined') ClashSoundEngine.playClick();
+}
+
+function togglePathDrawing() {
+  isDrawingPathMode = !isDrawingPathMode;
+  const btn = document.getElementById('canvas-draw-path-btn');
+  if (btn) {
+    btn.textContent = isDrawingPathMode ? "Draw: ACTIVE" : "Draw Path";
+    btn.style.background = isDrawingPathMode ? 'var(--clash-elixir-gradient)' : 'rgba(74, 144, 226, 0.15)';
+    btn.style.color = isDrawingPathMode ? '#fff' : '#4a90e2';
+  }
+  if (typeof ClashSoundEngine !== 'undefined') ClashSoundEngine.playClick();
+  showToast(isDrawingPathMode ? "Path drawing active! Tap coordinates on grid to draw arrows." : "Path drawing stopped.", "info");
+}
+
+function renderStrategicPaths() {
+  const svg = document.getElementById('canvas-svg-overlay');
+  if (!svg) return;
+  
+  svg.innerHTML = '';
+  if (currentPathPoints.length < 2) return;
+
+  // Render continuous lines
+  let pathD = `M ${currentPathPoints[0].x}% ${currentPathPoints[0].y}%`;
+  for (let i = 1; i < currentPathPoints.length; i++) {
+    pathD += ` L ${currentPathPoints[i].x}% ${currentPathPoints[i].y}%`;
+  }
+
+  // Draw Path Line
+  const path = document.createElementNS("http://www.w3.org/2000/svg", "path");
+  path.setAttribute("d", pathD);
+  path.setAttribute("stroke", "#4a90e2");
+  path.setAttribute("stroke-width", "3");
+  path.setAttribute("fill", "none");
+  path.setAttribute("stroke-dasharray", "5,5");
+  svg.appendChild(path);
+
+  // Draw node chimes/circles
+  currentPathPoints.forEach((pt, idx) => {
+    const circle = document.createElementNS("http://www.w3.org/2000/svg", "circle");
+    circle.setAttribute("cx", `${pt.x}%`);
+    circle.setAttribute("cy", `${pt.y}%`);
+    circle.setAttribute("r", "5");
+    circle.setAttribute("fill", idx === currentPathPoints.length - 1 ? "#ec3b83" : "#4a90e2");
+    svg.appendChild(circle);
+  });
 }
 
 window.removeDefense = removeDefense;
 window.clearBaseCanvas = clearBaseCanvas;
+window.toggleDPSHeatmap = toggleDPSHeatmap;
+window.togglePathDrawing = togglePathDrawing;
 
 // ===== ⚔️ MODULE 1: WAR ROOM STRATEGY =====
 function initWarRoomPlanner() {
@@ -3359,7 +3472,12 @@ function renderHeroEquipmentSynergies(player) {
 
   return `
     <div class="synergy-recommend-card">
-      <h3 class="gold-gradient-text" style="font-size: 18px; font-weight: 800; margin-bottom: 16px;"><i class="fas fa-screwdriver-wrench"></i> Hero Gear Synergy Recommendation Engine</h3>
+      <div class="flex-between pb-12 border-bottom-subtle" style="display:flex; justify-content:space-between; align-items:center; margin-bottom: 16px;">
+        <h3 class="gold-gradient-text" style="font-size: 18px; font-weight: 800; margin: 0;"><i class="fas fa-screwdriver-wrench"></i> Hero Gear Strategy & Ore Forge</h3>
+        <button class="primary-btn" onclick="openOreForgeModal('${escapeHtml(player.tag)}')" style="padding: 6px 14px; font-size: 12px; font-weight: bold; border-radius: 8px; box-shadow: none;">
+          <i class="fas fa-hammer" style="margin-right: 6px;"></i> Ore Forge Sandbox
+        </button>
+      </div>
       
       <div style="display: flex; flex-direction: column; gap: 16px;">
         <!-- Barbarian King -->
@@ -3384,7 +3502,494 @@ function renderHeroEquipmentSynergies(player) {
   `;
 }
 
-// ===== 🎛️ MODULE 10: CUSTOM WORKSPACE WIDGETS TOGGLE =====
+// ===== 🔊 PROGRAMMATIC GAME-AUDIO SYNTHESIS SYSTEM =====
+const ClashSoundEngine = {
+  ctx: null,
+  enabled: false,
+  init() {
+    if (this.ctx) return;
+    this.ctx = new (window.AudioContext || window.webkitAudioContext)();
+    
+    // Read state from localStorage
+    const savedSound = localStorage.getItem('coc_sound_enabled');
+    this.enabled = savedSound === 'true';
+    const btn = document.getElementById('sound-toggle-btn');
+    if (btn) {
+      btn.classList.toggle('sound-on', this.enabled);
+      btn.querySelector('span').textContent = this.enabled ? "SFX: ON" : "SFX: OFF";
+    }
+  },
+  toggle() {
+    if (!this.ctx) this.ctx = new (window.AudioContext || window.webkitAudioContext)();
+    this.enabled = !this.enabled;
+    localStorage.setItem('coc_sound_enabled', this.enabled);
+    
+    const btn = document.getElementById('sound-toggle-btn');
+    if (btn) {
+      btn.classList.toggle('sound-on', this.enabled);
+      btn.querySelector('span').textContent = this.enabled ? "SFX: ON" : "SFX: OFF";
+    }
+    
+    if (this.enabled) {
+      this.playFanfare();
+      showToast("Sound effects enabled!", "success");
+    } else {
+      showToast("Sound effects muted.", "info");
+    }
+    return this.enabled;
+  },
+  playClick() {
+    if (!this.enabled) return;
+    try {
+      const ctx = this.ctx;
+      const osc = ctx.createOscillator();
+      const gain = ctx.createGain();
+      osc.connect(gain);
+      gain.connect(ctx.destination);
+      
+      osc.frequency.setValueAtTime(750, ctx.currentTime);
+      osc.frequency.exponentialRampToValueAtTime(120, ctx.currentTime + 0.08);
+      gain.gain.setValueAtTime(0.06, ctx.currentTime);
+      gain.gain.linearRampToValueAtTime(0.001, ctx.currentTime + 0.08);
+      osc.start();
+      osc.stop(ctx.currentTime + 0.08);
+    } catch (e) {
+      console.warn("Audio Context blocked or not initialized yet.");
+    }
+  },
+  playHorn() {
+    if (!this.enabled) return;
+    try {
+      const ctx = this.ctx;
+      const osc1 = ctx.createOscillator();
+      const osc2 = ctx.createOscillator();
+      const gain = ctx.createGain();
+      const filter = ctx.createBiquadFilter();
+      
+      osc1.type = 'sawtooth';
+      osc2.type = 'sawtooth';
+      osc1.frequency.setValueAtTime(130, ctx.currentTime);
+      osc2.frequency.setValueAtTime(132, ctx.currentTime);
+      
+      filter.type = 'lowpass';
+      filter.frequency.setValueAtTime(220, ctx.currentTime);
+      filter.frequency.exponentialRampToValueAtTime(750, ctx.currentTime + 0.15);
+      filter.frequency.linearRampToValueAtTime(120, ctx.currentTime + 0.4);
+      
+      gain.gain.setValueAtTime(0.08, ctx.currentTime);
+      gain.gain.linearRampToValueAtTime(0.001, ctx.currentTime + 0.45);
+      
+      osc1.connect(filter);
+      osc2.connect(filter);
+      filter.connect(gain);
+      gain.connect(ctx.destination);
+      
+      osc1.start();
+      osc2.start();
+      osc1.stop(ctx.currentTime + 0.45);
+      osc2.stop(ctx.currentTime + 0.45);
+    } catch (e) {}
+  },
+  playFanfare() {
+    if (!this.enabled) return;
+    try {
+      const ctx = this.ctx;
+      const notes = [261.63, 329.63, 392.00, 523.25]; // C4, E4, G4, C5
+      notes.forEach((freq, idx) => {
+        const osc = ctx.createOscillator();
+        const gain = ctx.createGain();
+        osc.type = 'sine';
+        osc.frequency.setValueAtTime(freq, ctx.currentTime + idx * 0.08);
+        gain.gain.setValueAtTime(0, ctx.currentTime);
+        gain.gain.linearRampToValueAtTime(0.04, ctx.currentTime + idx * 0.08 + 0.01);
+        gain.gain.linearRampToValueAtTime(0.001, ctx.currentTime + idx * 0.08 + 0.3);
+        
+        osc.connect(gain);
+        gain.connect(ctx.destination);
+        osc.start(ctx.currentTime + idx * 0.08);
+        osc.stop(ctx.currentTime + idx * 0.08 + 0.3);
+      });
+    } catch (e) {}
+  }
+};
+
+function toggleDashboardSound() {
+  ClashSoundEngine.toggle();
+}
+
+// ===== 🏰 PROGRESSION RUSH ANALYZER =====
+function calculateProgressionRush(player) {
+  const th = player.townHallLevel || 9;
+  
+  // Define maximum levels for heroes at specific Town Hall steps
+  const maxHeroLevels = {
+    16: { bk: 95, aq: 95, gw: 70, rc: 45 },
+    15: { bk: 90, aq: 90, gw: 65, rc: 40 },
+    14: { bk: 80, aq: 80, gw: 55, rc: 30 },
+    13: { bk: 75, aq: 75, gw: 50, rc: 25 },
+    12: { bk: 65, aq: 65, gw: 40, rc: 0 },
+    11: { bk: 50, aq: 50, gw: 20, rc: 0 },
+    10: { bk: 40, aq: 40, gw: 0, rc: 0 },
+    9: { bk: 30, aq: 30, gw: 0, rc: 0 }
+  };
+
+  const limits = maxHeroLevels[th] || maxHeroLevels[9];
+  
+  let currentTotal = 0;
+  let maxTotal = 0;
+  
+  (player.heroes || []).forEach(h => {
+    let cap = 30;
+    if (h.name.includes("King")) cap = limits.bk;
+    else if (h.name.includes("Queen")) cap = limits.aq;
+    else if (h.name.includes("Warden")) cap = limits.gw;
+    else if (h.name.includes("Champion")) cap = limits.rc;
+    
+    if (cap > 0) {
+      currentTotal += h.level;
+      maxTotal += cap;
+    }
+  });
+
+  const heroPercent = maxTotal > 0 ? Math.round((currentTotal / maxTotal) * 100) : 80;
+  
+  // Estimate lab levels
+  const labPercent = player.troops && player.troops.length > 0 ? Math.round((player.troops.filter(t => t.level === t.maxLevel).length / player.troops.length) * 100) : 75;
+  
+  // Calculate average rush index
+  const progressPercent = Math.round((heroPercent + labPercent) / 2);
+  const isRushed = progressPercent < 70;
+  
+  // Calculate resources and time remaining estimates
+  const missingHeros = maxTotal - currentTotal;
+  const simulatedGold = isRushed ? "450M" : "45M";
+  const simulatedElixir = isRushed ? "320M" : "32M";
+  const simulatedDarkElixir = (missingHeros * 8500).toLocaleString() + " DE";
+  const simulatedBuilderDays = Math.max(0, missingHeros * 3 + (100 - labPercent) * 2);
+
+  return {
+    percentage: progressPercent,
+    heroPercent,
+    labPercent,
+    gold: simulatedGold,
+    elixir: simulatedElixir,
+    darkElixir: simulatedDarkElixir,
+    days: simulatedBuilderDays,
+    status: isRushed ? "RUSHED BASE" : "MAX PROGRESSING"
+  };
+}
+
+function renderProgressionAudit(player) {
+  const audit = calculateProgressionRush(player);
+  
+  const statusColor = audit.percentage >= 80 ? "#4adb86" : audit.percentage >= 65 ? "var(--clash-gold)" : "var(--clash-elixir)";
+  const statusGlow = audit.percentage >= 80 ? "rgba(74, 219, 134, 0.3)" : audit.percentage >= 65 ? "rgba(245, 166, 35, 0.3)" : "rgba(236, 59, 131, 0.3)";
+
+  return `
+    <div class="progression-audit-card">
+      <div style="border-bottom: 1px solid var(--border-subtle); padding-bottom: 12px; margin-bottom: 16px;">
+        <h3 class="gold-gradient-text" style="font-size: 18px; font-weight: 800; margin: 0;"><i class="fas fa-chart-line"></i> Village Progression & Rush Auditor</h3>
+        <span style="font-size: 11px; color: var(--text-muted);">Real-time upgrade audit compared to Town Hall ${player.townHallLevel} caps</span>
+      </div>
+
+      <div class="gauge-wrapper">
+        <div class="radial-gauge" style="--gauge-percent: ${audit.percentage}%; --gauge-color: ${statusColor}; --gauge-glow: ${statusGlow};">
+          <div class="radial-gauge-text">${audit.percentage}%</div>
+        </div>
+        
+        <div style="flex: 1; display: flex; flex-direction: column; gap: 6px;">
+          <div style="font-size: 16px; font-weight: 800; color: ${statusColor}">${audit.status}</div>
+          <p style="font-size: 13px; color: var(--text-muted); line-height: 1.5;">
+            This clashing village has completed <strong>${audit.percentage}%</strong> of all offense targets. 
+            Estimated upgrade remaining budget demands:
+          </p>
+          
+          <div style="display: flex; gap: 12px; flex-wrap: wrap; margin-top: 8px;">
+            <span class="badge-small" style="background: rgba(245, 166, 35, 0.1); color: var(--clash-gold); font-size: 11px;">🟡 ${audit.gold} Gold</span>
+            <span class="badge-small" style="background: rgba(236, 59, 131, 0.1); color: var(--clash-elixir); font-size: 11px;">🟣 ${audit.elixir} Elixir</span>
+            <span class="badge-small" style="background: rgba(139, 68, 253, 0.1); color: var(--clash-dark-elixir); font-size: 11px;">🟪 ${audit.darkElixir}</span>
+            <span class="badge-small" style="background: rgba(255,255,255,0.06); color: #fff; font-size: 11px;">⏳ ${audit.days} Builder Days</span>
+          </div>
+        </div>
+      </div>
+
+      <div class="progression-bars-grid">
+        <div class="progression-bar-row">
+          <div class="flex-between" style="font-size: 12px; font-weight: bold;">
+            <span>Hero Progression Cap</span>
+            <span style="color: var(--clash-gold);">${audit.heroPercent}%</span>
+          </div>
+          <div class="progression-bar-fill-container">
+            <div class="progression-bar-fill" style="width: ${audit.heroPercent}%; --fill-color: var(--clash-gold-gradient);"></div>
+          </div>
+        </div>
+
+        <div class="progression-bar-row">
+          <div class="flex-between" style="font-size: 12px; font-weight: bold;">
+            <span>Lab Research (Max Tech)</span>
+            <span style="color: var(--clash-elixir);">${audit.labPercent}%</span>
+          </div>
+          <div class="progression-bar-fill-container">
+            <div class="progression-bar-fill" style="width: ${audit.labPercent}%; --fill-color: var(--clash-elixir-gradient);"></div>
+          </div>
+        </div>
+      </div>
+    </div>
+  `;
+}
+
+// ===== 🦸 HERO ORE FORGE SANDBOX ENGINE =====
+let activeForgeGear = null;
+let currentSimulatedForgeLevel = 1;
+
+function openOreForgeModal(playerTag) {
+  const modal = document.getElementById('ore-forge-modal');
+  if (!modal) return;
+
+  const player = window.MOCK_PLAYERS[playerTag] || Object.values(window.MOCK_PLAYERS)[0];
+  state.currentForgePlayer = player;
+  
+  renderForgeEquipment(player);
+  modal.showModal();
+  if (typeof ClashSoundEngine !== 'undefined') ClashSoundEngine.playFanfare();
+}
+
+function closeOreForgeModal() {
+  const modal = document.getElementById('ore-forge-modal');
+  if (modal) modal.close();
+  if (typeof ClashSoundEngine !== 'undefined') ClashSoundEngine.playClick();
+}
+
+function renderForgeEquipment(player) {
+  const container = document.getElementById('forge-equipment-grid-container');
+  if (!container) return;
+
+  const equipment = player.heroEquipment || [];
+  if (equipment.length === 0) {
+    container.innerHTML = `<p class="text-muted">No equipment logs found for player.</p>`;
+    return;
+  }
+
+  container.innerHTML = equipment.map(eq => {
+    return `
+      <div class="forge-equipment-card" id="forge-card-${eq.name.replace(/\s+/g, '')}" onclick="selectForgeGear('${escapeHtml(eq.name)}')">
+        <div class="forge-level-pill">LVL ${eq.level}</div>
+        <div style="font-size: 28px; margin-bottom: 6px;">🛡️</div>
+        <div style="font-size: 13px; font-weight: 700; color: var(--text-main); white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">${escapeHtml(eq.name)}</div>
+        <div style="font-size: 10px; color: var(--text-muted); margin-top: 4px;">${escapeHtml(eq.heroName)}</div>
+      </div>
+    `;
+  }).join('');
+  
+  // Select first equipment by default
+  if (equipment.length > 0) {
+    selectForgeGear(equipment[0].name);
+  }
+}
+
+function selectForgeGear(gearName) {
+  const player = state.currentForgePlayer;
+  if (!player) return;
+
+  const eq = player.heroEquipment.find(e => e.name === gearName);
+  if (!eq) return;
+
+  activeForgeGear = eq;
+  currentSimulatedForgeLevel = eq.level;
+
+  // Highlight active cards
+  const container = document.getElementById('forge-equipment-grid-container');
+  if (container) {
+    container.querySelectorAll('.forge-equipment-card').forEach(c => c.classList.remove('selected'));
+  }
+  const activeCard = document.getElementById(`forge-card-${eq.name.replace(/\s+/g, '')}`);
+  if (activeCard) activeCard.classList.add('selected');
+
+  updateForgeControlPanel();
+  if (typeof ClashSoundEngine !== 'undefined') ClashSoundEngine.playClick();
+}
+
+function updateForgeControlPanel() {
+  const panel = document.getElementById('forge-control-panel-container');
+  if (!panel || !activeForgeGear) return;
+
+  // Epic equipment cost limits vs Common
+  const isEpic = activeForgeGear.name === "Giant Gauntlet" || activeForgeGear.name === "Frozen Arrow";
+  const maxLvl = isEpic ? 27 : 18;
+  
+  // Calculate cumulative Ores needed for next step upgrades
+  let shinyCost = 0;
+  let glowyCost = 0;
+  let starryCost = 0;
+
+  if (currentSimulatedForgeLevel < maxLvl) {
+    const diff = currentSimulatedForgeLevel - activeForgeGear.level;
+    // Basic progression progression costs mapping
+    const baseShiny = isEpic ? 240 : 120;
+    const baseGlowy = isEpic ? 30 : 15;
+    const baseStarry = isEpic ? 6 : 0;
+    
+    shinyCost = Math.max(0, (diff + 1) * baseShiny);
+    glowyCost = Math.max(0, (diff + 1) * baseGlowy);
+    starryCost = Math.max(0, (diff + 1) * baseStarry);
+  }
+
+  // Calculate simulated stat boosts
+  const currentDpsPercent = 4 * currentSimulatedForgeLevel;
+  const currentHpRecovery = 12 * currentSimulatedForgeLevel;
+
+  panel.innerHTML = `
+    <div>
+      <h4 class="gold-gradient-text" style="font-size: 16px; font-weight: 800; margin: 0;">${escapeHtml(activeForgeGear.name)}</h4>
+      <span style="font-size: 11px; color: var(--text-muted);">${escapeHtml(activeForgeGear.heroName)} &bull; ${isEpic ? 'Epic Rarity' : 'Common Rarity'}</span>
+    </div>
+
+    <div class="level-spinner-row">
+      <button class="level-spinner-btn" onclick="adjustForgeLevel(-1)">&minus;</button>
+      <div style="text-align: center;">
+        <span style="font-size: 10px; color: var(--text-muted); text-transform: uppercase;">Simulated Forge Level</span>
+        <div style="font-size: 20px; font-weight: 800; color: var(--clash-gold);">LVL ${currentSimulatedForgeLevel} / ${maxLvl}</div>
+      </div>
+      <button class="level-spinner-btn" onclick="adjustForgeLevel(1)">&plus;</button>
+    </div>
+
+    <div>
+      <h5 style="font-size: 12px; color: var(--text-muted); margin-bottom: 8px;">Upgrade Cost to Target Level</h5>
+      <div class="ore-cost-badge-row">
+        <div class="ore-cost-badge">
+          <i class="fas fa-star" style="color: #4a90e2; font-size: 16px;"></i>
+          <div>${shinyCost}</div>
+          <span>Shiny Ore</span>
+        </div>
+        <div class="ore-cost-badge">
+          <i class="fas fa-star" style="color: #ec3b83; font-size: 16px;"></i>
+          <div>${glowyCost}</div>
+          <span>Glowy Ore</span>
+        </div>
+        <div class="ore-cost-badge">
+          <i class="fas fa-star" style="color: var(--clash-gold); font-size: 16px;"></i>
+          <div>${starryCost}</div>
+          <span>Starry Ore</span>
+        </div>
+      </div>
+    </div>
+
+    <div style="background: rgba(0,0,0,0.15); border: 1px solid var(--border-subtle); border-radius: 10px; padding: 12px;">
+      <h5 style="font-size: 11px; color: var(--text-muted); text-transform: uppercase; margin-bottom: 8px;">Active Sandbox Stats</h5>
+      <div class="flex-between border-bottom-subtle pb-6" style="font-size: 12px; margin-bottom: 6px;">
+        <span>Passive Damage Increase</span>
+        <strong style="color: #4adb86;">+${currentDpsPercent}% Damage</strong>
+      </div>
+      <div class="flex-between" style="font-size: 12px;">
+        <span>Active HP Regeneration</span>
+        <strong style="color: #4adb86;">+${currentHpRecovery} Hitpoints</strong>
+      </div>
+    </div>
+  `;
+}
+
+function adjustForgeLevel(delta) {
+  if (!activeForgeGear) return;
+  const isEpic = activeForgeGear.name === "Giant Gauntlet" || activeForgeGear.name === "Frozen Arrow";
+  const maxLvl = isEpic ? 27 : 18;
+
+  const target = currentSimulatedForgeLevel + delta;
+  if (target >= activeForgeGear.level && target <= maxLvl) {
+    currentSimulatedForgeLevel = target;
+    updateForgeControlPanel();
+    if (typeof ClashSoundEngine !== 'undefined') ClashSoundEngine.playClick();
+  }
+}
+
+// ===== 🔔 DISCORD WEBHOOK SYSTEM =====
+function triggerWebhookTest() {
+  const url = document.getElementById('discord-webhook-input').value.trim();
+  if (!url) {
+    showToast("Please input a valid Discord webhook URL.", "error");
+    return;
+  }
+
+  const payload = {
+    embeds: [{
+      title: "⚔️ Clash Command Center — Tactical War Plan Alert",
+      description: "Leader strategic objectives saved successfully. Plan outlines target entry vectors and attack parameters.",
+      color: 16101923, // Clash Gold
+      fields: [
+        { name: "Clan Name", value: "Nova Esports (#2PP2PP2P)", inline: true },
+        { name: "Tactical Verdict", value: "High Win Odds. Core defenses heavily scouted.", inline: true }
+      ],
+      footer: { text: "Clash Command Center Pro • Live API proxy active" }
+    }]
+  };
+
+  fetch(url, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload)
+  }).then(() => {
+    showToast("Discord Webhook ping sent successfully!", "success");
+    if (typeof ClashSoundEngine !== 'undefined') ClashSoundEngine.playFanfare();
+  }).catch(() => {
+    showToast("Failed to ping Discord. Check CORS policy or URL endpoint.", "error");
+  });
+}
+
+function simulateWebhookEmbed() {
+  const panel = document.getElementById('discord-simulation-panel');
+  if (!panel) return;
+
+  const isDark = document.body.classList.contains('light-theme') === false;
+
+  panel.innerHTML = `
+    <div class="sim-discord-card">
+      <div class="sim-discord-header">⚔️ Clash Command Center — Tactical Alert</div>
+      <p style="margin: 0; color: #dbdee1; line-height: 1.4;">Leader strategic objectives saved successfully. Plan outlines target entry vectors and attack parameters.</p>
+      
+      <div class="sim-discord-field-grid">
+        <div class="sim-discord-field">
+          <strong>Clan Name</strong>
+          <span style="color: #fff;">Nova Esports (#2PP2PP2P)</span>
+        </div>
+        <div class="sim-discord-field">
+          <strong>Tactical Verdict</strong>
+          <span style="color: #fff;">High Win Odds. Core defenses scouted.</span>
+        </div>
+      </div>
+    </div>
+  `;
+  showToast("Simulated Discord embed rendered below!", "success");
+  if (typeof ClashSoundEngine !== 'undefined') ClashSoundEngine.playClick();
+}
+
+// Save Webhook to local storage on save settings click
+document.addEventListener('DOMContentLoaded', () => {
+  ClashSoundEngine.init();
+  
+  // Hook tab clicks to Sound Engine
+  document.querySelectorAll('.nav-item').forEach(item => {
+    item.addEventListener('click', () => {
+      if (typeof ClashSoundEngine !== 'undefined') ClashSoundEngine.playClick();
+    });
+  });
+
+  // Bind settings load
+  const webInput = document.getElementById('discord-webhook-input');
+  if (webInput) {
+    webInput.value = localStorage.getItem('coc_discord_webhook') || '';
+  }
+
+  const saveBtn = document.getElementById('save-settings-btn');
+  if (saveBtn) {
+    saveBtn.addEventListener('click', () => {
+      const url = document.getElementById('discord-webhook-input').value.trim();
+      localStorage.setItem('coc_discord_webhook', url);
+      showToast("Webhook preferences saved successfully!", "success");
+      if (typeof ClashSoundEngine !== 'undefined') ClashSoundEngine.playClick();
+    });
+  }
+});
+
+// ===== 🎛️ CUSTOM WORKSPACE WIDGETS TOGGLE =====
 function applyWidgetConfigurations() {
   const showChart = localStorage.getItem('coc_widget_chart') !== 'false';
   const showGoldpass = localStorage.getItem('coc_widget_goldpass') !== 'false';
@@ -3415,3 +4020,554 @@ function applyWidgetConfigurations() {
 }
 
 window.applyWidgetConfigurations = applyWidgetConfigurations;
+
+// ===== 🛡️ MODULE 11: LEGEND LEAGUE SHIELD DAY SIMULATOR =====
+state.legendStartTrophies = 5200;
+state.legendAttacks = Array(8).fill(40); // Trophies gained per slot
+state.legendDefenses = Array(8).fill(16); // Trophies lost per slot
+let legendForecastChart = null;
+
+function initLegendSimulator() {
+  const startInput = document.getElementById('legend-start-trophies');
+  if (startInput) {
+    startInput.value = localStorage.getItem('coc_legend_start') || '5200';
+    state.legendStartTrophies = parseInt(startInput.value);
+    startInput.addEventListener('input', (e) => {
+      state.legendStartTrophies = parseInt(e.target.value) || 5000;
+      localStorage.setItem('coc_legend_start', state.legendStartTrophies);
+      calculateLegendTrophies();
+    });
+  }
+
+  // Check if we need to load active inputs
+  const savedAttacks = JSON.parse(localStorage.getItem('coc_legend_attacks'));
+  const savedDefenses = JSON.parse(localStorage.getItem('coc_legend_defenses'));
+  if (savedAttacks) state.legendAttacks = savedAttacks;
+  if (savedDefenses) state.legendDefenses = savedDefenses;
+
+  renderLegendSlots();
+  calculateLegendTrophies();
+}
+
+function renderLegendSlots() {
+  const attacksContainer = document.getElementById('legend-attacks-grid');
+  const defensesContainer = document.getElementById('legend-defenses-grid');
+  if (!attacksContainer || !defensesContainer) return;
+
+  attacksContainer.innerHTML = Array.from({ length: 8 }, (_, i) => {
+    return `
+      <div class="legend-slot-row">
+        <span class="legend-slot-title">Attack #${i + 1}</span>
+        <select class="legend-select-control" onchange="updateLegendSlot('attack', ${i}, this.value)">
+          <option value="40" ${state.legendAttacks[i] === 40 ? 'selected' : ''}>3★ (+40)</option>
+          <option value="32" ${state.legendAttacks[i] === 32 ? 'selected' : ''}>2★ (+32)</option>
+          <option value="26" ${state.legendAttacks[i] === 26 ? 'selected' : ''}>2★ (+26)</option>
+          <option value="16" ${state.legendAttacks[i] === 16 ? 'selected' : ''}>1★ (+16)</option>
+          <option value="0" ${state.legendAttacks[i] === 0 ? 'selected' : ''}>0★ (+0)</option>
+        </select>
+      </div>
+    `;
+  }).join('');
+
+  defensesContainer.innerHTML = Array.from({ length: 8 }, (_, i) => {
+    return `
+      <div class="legend-slot-row">
+        <span class="legend-slot-title">Defense #${i + 1}</span>
+        <select class="legend-select-control" onchange="updateLegendSlot('defense', ${i}, this.value)" style="border-color: var(--clash-elixir);">
+          <option value="40" ${state.legendDefenses[i] === 40 ? 'selected' : ''}>3★ (-40)</option>
+          <option value="32" ${state.legendDefenses[i] === 32 ? 'selected' : ''}>2★ (-32)</option>
+          <option value="24" ${state.legendDefenses[i] === 24 ? 'selected' : ''}>2★ (-24)</option>
+          <option value="16" ${state.legendDefenses[i] === 16 ? 'selected' : ''}>1★ (-16)</option>
+          <option value="0" ${state.legendDefenses[i] === 0 ? 'selected' : ''}>0★ (-0)</option>
+        </select>
+      </div>
+    `;
+  }).join('');
+}
+
+function updateLegendSlot(type, index, value) {
+  const val = parseInt(value);
+  if (type === 'attack') {
+    state.legendAttacks[index] = val;
+    localStorage.setItem('coc_legend_attacks', JSON.stringify(state.legendAttacks));
+  } else {
+    state.legendDefenses[index] = val;
+    localStorage.setItem('coc_legend_defenses', JSON.stringify(state.legendDefenses));
+  }
+  calculateLegendTrophies();
+  if (typeof ClashSoundEngine !== 'undefined') ClashSoundEngine.playClick();
+}
+
+function calculateLegendTrophies() {
+  const attacksTotal = state.legendAttacks.reduce((a, b) => a + b, 0);
+  const defensesTotal = state.legendDefenses.reduce((a, b) => a + b, 0);
+  const net = attacksTotal - defensesTotal;
+
+  const netEl = document.getElementById('legend-net-trophies');
+  if (netEl) {
+    netEl.textContent = `${net >= 0 ? '+' : ''}${net} Net Trophies`;
+    netEl.style.background = net >= 0 ? 'rgba(74, 219, 134, 0.15)' : 'rgba(236, 59, 131, 0.15)';
+    netEl.style.color = net >= 0 ? '#4adb86' : 'var(--clash-elixir)';
+  }
+
+  initLegendForecastChart(net);
+}
+
+function simulateAllLegendRuns() {
+  const atkPresets = [40, 32, 26, 16, 0];
+  const defPresets = [40, 32, 24, 16, 0];
+
+  state.legendAttacks = Array.from({ length: 8 }, () => atkPresets[Math.floor(Math.random() * atkPresets.length)]);
+  state.legendDefenses = Array.from({ length: 8 }, () => defPresets[Math.floor(Math.random() * defPresets.length)]);
+
+  localStorage.setItem('coc_legend_attacks', JSON.stringify(state.legendAttacks));
+  localStorage.setItem('coc_legend_defenses', JSON.stringify(state.legendDefenses));
+
+  renderLegendSlots();
+  calculateLegendTrophies();
+  if (typeof ClashSoundEngine !== 'undefined') ClashSoundEngine.playFanfare();
+  showToast("Daily Legend Runs simulated randomly!", "success");
+}
+
+function clearLegendRuns() {
+  state.legendAttacks = Array(8).fill(40);
+  state.legendDefenses = Array(8).fill(16);
+  
+  localStorage.setItem('coc_legend_attacks', JSON.stringify(state.legendAttacks));
+  localStorage.setItem('coc_legend_defenses', JSON.stringify(state.legendDefenses));
+
+  renderLegendSlots();
+  calculateLegendTrophies();
+  if (typeof ClashSoundEngine !== 'undefined') ClashSoundEngine.playHorn();
+  showToast("Legend logs cleared.", "info");
+}
+
+function initLegendForecastChart(dailyNet) {
+  loadChartJs().then(() => {
+    const canvas = document.getElementById('legendForecastCanvas');
+    if (!canvas) return;
+    const ctx = canvas.getContext('2d');
+
+    const days = Array.from({ length: 30 }, (_, i) => `Day ${i + 1}`);
+    const forecastData = Array.from({ length: 30 }, (_, i) => {
+      return state.legendStartTrophies + (dailyNet * (i + 1));
+    });
+
+    if (legendForecastChart) legendForecastChart.destroy();
+
+    try {
+      legendForecastChart = new Chart(ctx, {
+        type: 'line',
+        data: {
+          labels: days,
+          datasets: [{
+            label: 'Predicted Trophies',
+            data: forecastData,
+            borderColor: 'var(--clash-gold)',
+            backgroundColor: 'rgba(245, 166, 35, 0.1)',
+            fill: true,
+            borderWidth: 2,
+            tension: 0.1,
+            pointRadius: 1
+          }]
+        },
+        options: {
+          responsive: true,
+          maintainAspectRatio: false,
+          plugins: {
+            legend: { display: false }
+          },
+          scales: {
+            x: { grid: { display: false }, ticks: { color: '#a8a8a8', font: { size: 9 } } },
+            y: { grid: { color: 'rgba(255,255,255,0.05)' }, ticks: { color: '#a8a8a8', font: { size: 9 } } }
+          }
+        }
+      });
+    } catch (e) {
+      console.warn("Forecast chart issues", e);
+    }
+  });
+}
+
+// ===== 🏰 CAPITAL SUB-TAB & GPA COORDINATOR =====
+// Intercept renderCapital to add sub-tabs dynamically
+const originalRenderCapital = window.renderCapital || function() {};
+function premiumRenderCapital(capital) {
+  const container = document.getElementById('capital-results-container');
+  if (!container) return;
+
+  // Render subtabs layout
+  container.innerHTML = `
+    <div style="display: flex; flex-direction: column; gap: 24px;">
+      <!-- Sub Nav -->
+      <div class="sub-nav-bar" id="capital-hub-subnav" style="display: flex; gap: 8px;">
+        <button class="sub-nav-btn active" id="btn-cap-districts" onclick="toggleCapitalSubTab('districts')">Districts Overview</button>
+        <button class="sub-nav-btn" id="btn-cap-coordinator" onclick="toggleCapitalSubTab('coordinator')">Raid Coordinator & GPA</button>
+      </div>
+
+      <!-- districts view container -->
+      <div id="capital-subview-districts">
+        <!-- Render normal districts overview inside -->
+        <div class="results-card" style="min-height: auto; border: none; padding: 0; background: none; box-shadow: none;">
+          <h3>🏰 Capital Peak & District Halls</h3>
+          <div style="display: flex; flex-direction: column; gap: 14px; margin-top: 16px;">
+            ${(capital.clanCapital?.districts || []).map(dist => `
+              <div class="flex-between border-bottom-subtle pb-8">
+                <div>
+                  <strong>${escapeHtml(dist.name)}</strong><br/>
+                  <small style="color: var(--text-muted);">District Hall Level ${dist.districtHallLevel}</small>
+                </div>
+                <span class="level-tag">LVL ${dist.districtHallLevel}</span>
+              </div>
+            `).join('')}
+          </div>
+        </div>
+      </div>
+
+      <!-- Raid coordinator view container -->
+      <div id="capital-subview-coordinator" style="display: none; flex-direction: column; gap: 24px;">
+        <div class="results-card" style="min-height: auto;">
+          <h3>🎖️ Gold-per-Attack (GPA) Leaderboard</h3>
+          <p style="font-size: 12px; color: var(--text-muted); margin-bottom: 16px;">Ranks raid weekend participants by gold looted per attack. Green badges show top looting efficiency.</p>
+          <div class="gpa-leaderboard-list">
+            <div class="gpa-row">
+              <div style="display:flex; align-items:center; gap: 12px;">
+                <span class="gpa-rank-tag gold">1</span>
+                <strong>ClashMaster</strong>
+              </div>
+              <span class="badge-small" style="background: rgba(74, 219, 134, 0.15); color: #4adb86;">4,083 GPA (24,500 gold)</span>
+            </div>
+            <div class="gpa-row">
+              <div style="display:flex; align-items:center; gap: 12px;">
+                <span class="gpa-rank-tag elixir">2</span>
+                <strong>ElixirQueen</strong>
+              </div>
+              <span class="badge-small" style="background: rgba(74, 219, 134, 0.15); color: #4adb86;">3,800 GPA (22,800 gold)</span>
+            </div>
+            <div class="gpa-row">
+              <div style="display:flex; align-items:center; gap: 12px;">
+                <span class="gpa-rank-tag">3</span>
+                <strong>DarkKnight</strong>
+              </div>
+              <span class="badge-small" style="background: rgba(255,255,255,0.06); color: #fff;">3,500 GPA (21,000 gold)</span>
+            </div>
+          </div>
+        </div>
+
+        <div class="results-card" style="min-height: auto;">
+          <h3>🛡️ District Completion Optimizer</h3>
+          <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin-top: 12px;">
+            <div style="background: rgba(236, 59, 131, 0.08); border: 1px solid rgba(236,59,131,0.25); border-radius: 8px; padding: 12px;">
+              <strong>Wizard Valley (94% destroyed)</strong>
+              <p style="font-size: 11px; color: var(--text-muted); margin-top: 4px;">Recommended cleanup entry. Requires only 1 air attack to claim maximum loot bonus!</p>
+            </div>
+            <div style="background: rgba(74, 219, 134, 0.08); border: 1px solid rgba(74,219,134,0.25); border-radius: 8px; padding: 12px;">
+              <strong>Balloon Lagoon (45% destroyed)</strong>
+              <p style="font-size: 11px; color: var(--text-muted); margin-top: 4px;">Heavy fortifications remaining. Direct a ground smash with Super Giants first.</p>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  `;
+}
+
+function toggleCapitalSubTab(tab) {
+  const distEl = document.getElementById('capital-subview-districts');
+  const coordEl = document.getElementById('capital-subview-coordinator');
+  const btnDist = document.getElementById('btn-cap-districts');
+  const btnCoord = document.getElementById('btn-cap-coordinator');
+
+  if (tab === 'districts') {
+    if (distEl) distEl.style.display = 'block';
+    if (coordEl) coordEl.style.display = 'none';
+    if (btnDist) btnDist.classList.add('active');
+    if (btnCoord) btnCoord.classList.remove('active');
+  } else {
+    if (distEl) distEl.style.display = 'none';
+    if (coordEl) coordEl.style.display = 'flex';
+    if (btnDist) btnDist.classList.remove('active');
+    if (btnCoord) btnCoord.classList.add('active');
+  }
+  if (typeof ClashSoundEngine !== 'undefined') ClashSoundEngine.playClick();
+}
+
+window.renderCapital = premiumRenderCapital;
+window.toggleCapitalSubTab = toggleCapitalSubTab;
+
+// ===== 🎯 CLAN GAMES COORDINATOR & ROSTER BOARD =====
+const originalRenderClan = window.renderClan || function() {};
+function premiumRenderClan(clan) {
+  const container = document.getElementById('clan-results-container');
+  if (!container) return;
+
+  container.innerHTML = `
+    <div style="display: flex; flex-direction: column; gap: 24px;">
+      <!-- Subnav Bar -->
+      <div class="sub-nav-bar" id="clan-hub-subnav" style="display: flex; gap: 8px;">
+        <button class="sub-nav-btn active" id="btn-clan-roster" onclick="toggleClanSubTab('roster')">Roster & Intel</button>
+        <button class="sub-nav-btn" id="btn-clan-games" onclick="toggleClanSubTab('games')">Clan Games Tracker</button>
+      </div>
+
+      <!-- subview roster -->
+      <div id="clan-subview-roster" style="display: flex; flex-direction: column; gap: 24px;">
+        <!-- Inject normal renderClan HTML -->
+        <div style="display: flex; align-items: center; justify-content: space-between; border-bottom: 1px solid var(--border-subtle); padding-bottom: 20px;">
+          <div style="display: flex; align-items: center; gap: 16px;">
+            <img src="${clan.badgeUrls.medium}" alt="badge" style="width: 56px; height: 56px; object-fit: contain;"/>
+            <div>
+              <h2 class="gold-gradient-text" style="font-size: 24px; font-weight: 800; margin: 0;">${escapeHtml(clan.name)}</h2>
+              <div style="display: flex; gap: 8px; align-items: center; font-size: 13px; color: var(--text-muted); margin-top: 4px;">
+                <span>LVL ${clan.clanLevel}</span> &bull; <span>${escapeHtml(clan.tag)}</span> &bull; <span>${clan.members}/50 Players</span>
+              </div>
+            </div>
+          </div>
+        </div>
+        
+        <div class="stats-row">
+          <div class="stat-card" style="padding: 16px; background: var(--bg-stone-dark);">
+            <div class="stat-icon gold"><i class="fas fa-trophy"></i></div>
+            <div class="stat-details">
+              <h4 style="font-size: 11px;">Points</h4>
+              <p style="font-size: 18px;">${clan.clanPoints?.toLocaleString() || 0}</p>
+            </div>
+          </div>
+          <div class="stat-card" style="padding: 16px; background: var(--bg-stone-dark);">
+            <div class="stat-icon elixir"><i class="fas fa-shield-alt"></i></div>
+            <div class="stat-details">
+              <h4 style="font-size: 11px;">CWL Tier</h4>
+              <p style="font-size: 18px;">${clan.warLeague?.name || 'Unranked'}</p>
+            </div>
+          </div>
+        </div>
+
+        <div style="overflow-x: auto;">
+          <table class="roster-table" style="width: 100%; border-collapse: collapse; font-size: 13px;">
+            <thead>
+              <tr style="border-bottom: 2px solid var(--border-subtle); color: var(--text-muted); text-align: left;">
+                <th style="padding: 10px 14px;">Player Name</th>
+                <th style="padding: 10px 14px;">Role</th>
+                <th style="padding: 10px 14px; text-align: right;">Trophies</th>
+              </tr>
+            </thead>
+            <tbody>
+              ${(clan.memberList || []).map(m => `
+                <tr class="roster-row" data-action="load-player" data-tag="${escapeHtml(m.tag)}" style="border-bottom: 1px solid var(--border-subtle); cursor: pointer;">
+                  <td style="padding: 12px 14px;"><strong style="color: var(--text-main);">${escapeHtml(m.name)}</strong></td>
+                  <td style="padding: 12px 14px; color: var(--text-muted);">${escapeHtml(m.role)}</td>
+                  <td style="padding: 12px 14px; text-align: right; font-weight: 700; color: var(--clash-gold);"><i class="fas fa-trophy"></i> ${m.trophies}</td>
+                </tr>
+              `).join('')}
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      <!-- subview games board -->
+      <div id="clan-subview-games" style="display: none; flex-direction: column; gap: 24px;">
+        <div class="results-card" style="min-height: auto;">
+          <h3 class="gold-gradient-text" style="font-size: 20px; font-weight: 800; margin: 0;">🎯 Clan Games Milestone Tracker</h3>
+          <span style="font-size: 12px; color: var(--text-muted);">Unlock tier chimes together! Current Clan Points: <strong>42,800 / 50,000 pts</strong></span>
+          
+          <div class="games-milestone-track">
+            <div class="games-milestone-fill" style="width: 85.6%;"></div>
+          </div>
+          
+          <div class="games-milestone-nodes-row">
+            <div class="games-milestone-node unlocked" title="Tier 1 Unlocked (10,000 pts)">1</div>
+            <div class="games-milestone-node unlocked" title="Tier 2 Unlocked (18,000 pts)">2</div>
+            <div class="games-milestone-node unlocked" title="Tier 3 Unlocked (30,000 pts)">3</div>
+            <div class="games-milestone-node" title="Tier 4 Locked (50,000 pts)">4</div>
+          </div>
+        </div>
+
+        <div class="results-card" style="min-height: auto;">
+          <h3>⚔️ Recommended Active Quests</h3>
+          <div style="display: flex; flex-direction: column; gap: 10px; margin-top: 12px;">
+            <div class="ai-coach-funnel-step" style="border-color: rgba(245,166,35,0.35); background: rgba(245,166,35,0.02);">
+              <i class="fas fa-crosshairs" style="color: var(--clash-gold); margin-top: 2px;"></i>
+              <div>
+                <strong>Loot 3,000,000 Gold (+600 pts)</strong>
+                <p style="font-size: 11px; color: var(--text-muted); margin-top: 2px;">Highly recommended for <strong>ClashMaster</strong> due to active multiplayer pushing.</p>
+              </div>
+            </div>
+            <div class="ai-coach-funnel-step" style="border-color: rgba(139,68,253,0.35); background: rgba(139,68,253,0.02);">
+              <i class="fas fa-bolt" style="color: var(--clash-dark-elixir); margin-top: 2px;"></i>
+              <div>
+                <strong>Destroy 4 Air Defenses with Dragons (+400 pts)</strong>
+                <p style="font-size: 11px; color: var(--text-muted); margin-top: 2px;">Highly recommended for <strong>GoblinKing</strong> (Level 10 Dragons meta active).</p>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  `;
+
+  // Hook new load-player actions dynamically
+  container.querySelectorAll('[data-action="load-player"]').forEach(el => {
+    el.addEventListener('click', () => {
+      const tag = el.getAttribute('data-tag');
+      const p = window.MOCK_PLAYERS[tag];
+      if (p) {
+        renderPlayer(p);
+        switchTab('player');
+        if (typeof ClashSoundEngine !== 'undefined') ClashSoundEngine.playClick();
+      }
+    });
+  });
+}
+
+function toggleClanSubTab(tab) {
+  const rosterEl = document.getElementById('clan-subview-roster');
+  const gamesEl = document.getElementById('clan-subview-games');
+  const btnRoster = document.getElementById('btn-clan-roster');
+  const btnGames = document.getElementById('btn-clan-games');
+
+  if (tab === 'roster') {
+    if (rosterEl) rosterEl.style.display = 'flex';
+    if (gamesEl) gamesEl.style.display = 'none';
+    if (btnRoster) btnRoster.classList.add('active');
+    if (btnGames) btnGames.classList.remove('active');
+  } else {
+    if (rosterEl) rosterEl.style.display = 'none';
+    if (gamesEl) gamesEl.style.display = 'flex';
+    if (btnRoster) btnRoster.classList.remove('active');
+    if (btnGames) btnGames.classList.add('active');
+  }
+  if (typeof ClashSoundEngine !== 'undefined') ClashSoundEngine.playClick();
+}
+
+window.renderClan = premiumRenderClan;
+window.toggleClanSubTab = toggleClanSubTab;
+
+// ===== 🧠 MODULE 12: AI ATTACK STRATEGY COACH =====
+function renderAICoachBoard() {
+  const container = document.getElementById('war-subview-strategy');
+  if (!container) return;
+
+  // Insert AI Coach Board card dynamically next to standard win simulator elements
+  const coachDiv = document.createElement('div');
+  coachDiv.className = 'ai-coach-card';
+  coachDiv.innerHTML = `
+    <div style="border-bottom: 1px solid rgba(74, 144, 226, 0.25); padding-bottom: 12px; margin-bottom: 16px;">
+      <h3 style="color: #4a90e2; font-size: 18px; font-weight: 800; margin: 0; display:flex; align-items:center; gap:8px;">
+        <i class="fas fa-brain"></i> AI Strategy Coach Board
+      </h3>
+      <span style="font-size: 11px; color: var(--text-muted);">Real-time funneling timelines and spell drops helper</span>
+    </div>
+
+    <div class="input-group">
+      <label>Attack Phase Timer Selector</label>
+      <input type="range" class="ai-coach-timeline-slider" id="ai-timeline" min="0" max="180" value="0">
+      <div class="flex-between" style="font-size: 12px; font-weight: bold; color: #4a90e2; margin-top: 4px;">
+        <span>Funnels Phase (0s)</span>
+        <span id="ai-timeline-val">0 seconds elapsed</span>
+      </div>
+    </div>
+
+    <div id="ai-coaching-output-step" style="margin-top: 16px;">
+      <!-- Populated by sliders listener -->
+    </div>
+  `;
+
+  // Find strategist column and append
+  const strategyPanel = container.querySelector('.war-room-panel');
+  if (strategyPanel) {
+    strategyPanel.appendChild(coachDiv);
+    
+    // Bind slider listener
+    const slider = document.getElementById('ai-timeline');
+    const valText = document.getElementById('ai-timeline-val');
+    const output = document.getElementById('ai-coaching-output-step');
+
+    const updateCoach = () => {
+      const val = parseInt(slider.value);
+      if (valText) valText.textContent = `${val} seconds elapsed`;
+      
+      let stepHtml = '';
+      if (val < 30) {
+        stepHtml = `
+          <div class="ai-coach-funnel-step">
+            <i class="fas fa-flag" style="color: #4a90e2; margin-top: 2px;"></i>
+            <div>
+              <strong>Phase 1: Funneling Setup (0s - 30s)</strong>
+              <p style="font-size: 12px; color: var(--text-muted); margin-top: 4px; line-height: 1.4;">
+                Drop Baby Dragons or King at 3 o'clock corner to establish funnels. Clear trash structures so that heroes target core layers cleanly.
+              </p>
+            </div>
+          </div>
+        `;
+      } else if (val < 90) {
+        stepHtml = `
+          <div class="ai-coach-funnel-step" style="border-color: var(--clash-gold);">
+            <i class="fas fa-crosshairs" style="color: var(--clash-gold); margin-top: 2px;"></i>
+            <div>
+              <strong>Phase 2: Core Push & Spells drop (31s - 90s)</strong>
+              <p style="font-size: 12px; color: var(--text-muted); margin-top: 4px; line-height: 1.4;">
+                Deploy main smash troops (Hogs/Miner/Electro Titans) directly behind Archer Queen. Drop **Rage Spell** as they enter Monolith weapon range.
+              </p>
+            </div>
+          </div>
+        `;
+      } else {
+        stepHtml = `
+          <div class="ai-coach-funnel-step" style="border-color: var(--clash-elixir);">
+            <i class="fas fa-shield-halved" style="color: var(--clash-elixir); margin-top: 2px;"></i>
+            <div>
+              <strong>Phase 3: Cleanup & Warden Ability (91s - 180s)</strong>
+              <p style="font-size: 12px; color: var(--text-muted); margin-top: 4px; line-height: 1.4;">
+                Trigger Grand Warden **Eternal Tome** invulnerability ability immediately as Town Hall explosion bomb triggers at the center. Use Minions to sweep corners.
+              </p>
+            </div>
+          </div>
+        `;
+      }
+      if (output) output.innerHTML = stepHtml;
+    };
+
+    slider.addEventListener('input', updateCoach);
+    updateCoach(); // Initial run
+  }
+}
+
+// Bind Legends load in tab navigation
+document.addEventListener('DOMContentLoaded', () => {
+  // Bind active tabs switcher
+  const sidebar = document.querySelector('.nav-links');
+  if (sidebar) {
+    sidebar.querySelectorAll('.nav-item').forEach(item => {
+      item.addEventListener('click', () => {
+        const tab = item.getAttribute('data-tab');
+        if (tab === 'legends') {
+          setTimeout(initLegendSimulator, 50);
+        }
+      });
+    });
+  }
+
+  // Hook War Room subtab renderAICoachBoard trigger
+  const warSubnav = document.getElementById('war-hub-subnav');
+  if (warSubnav) {
+    warSubnav.querySelectorAll('.sub-nav-btn').forEach(btn => {
+      btn.addEventListener('click', () => {
+        const sub = btn.getAttribute('data-subtab');
+        if (sub === 'strategy') {
+          setTimeout(renderAICoachBoard, 50);
+        }
+      });
+    });
+  }
+});
+
+window.simulateAllLegendRuns = simulateAllLegendRuns;
+window.clearLegendRuns = clearLegendRuns;
+window.renderAICoachBoard = renderAICoachBoard;
+window.toggleDashboardSound = toggleDashboardSound;
+window.openOreForgeModal = openOreForgeModal;
+window.closeOreForgeModal = closeOreForgeModal;
+window.selectForgeGear = selectForgeGear;
+window.adjustForgeLevel = adjustForgeLevel;
+window.triggerWebhookTest = triggerWebhookTest;
+window.simulateWebhookEmbed = simulateWebhookEmbed;
+window.renderProgressionAudit = renderProgressionAudit;

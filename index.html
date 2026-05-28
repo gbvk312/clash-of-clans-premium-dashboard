@@ -64,6 +64,11 @@
         <span>Base Layouts</span>
         <span class="kbd-hint">7</span>
       </li>
+      <li class="nav-item" data-tab="legends" role="tab" tabindex="0" aria-selected="false" aria-controls="legends-pane">
+        <i class="fas fa-shield-alt"></i>
+        <span>Legend Simulator</span>
+        <span class="kbd-hint">0</span>
+      </li>
       <li class="nav-divider"></li>
       <li class="nav-item" data-tab="compare" role="tab" tabindex="0" aria-selected="false" aria-controls="compare-pane">
         <i class="fas fa-balance-scale"></i>
@@ -90,7 +95,11 @@
         <i class="fas fa-sun"></i>
         <span>Light Mode</span>
       </button>
-      <button class="config-btn" id="config-btn">
+      <button class="theme-toggle-btn" id="sound-toggle-btn" onclick="toggleDashboardSound()" aria-label="Toggle sound effects" style="margin-top: 8px;">
+        <i class="fas fa-volume-up"></i>
+        <span>Sound SFX</span>
+      </button>
+      <button class="config-btn" id="config-btn" style="margin-top: 8px;">
         <i class="fas fa-cog"></i>
         <span>API Settings</span>
       </button>
@@ -502,12 +511,22 @@
               <button class="palette-btn" data-defense="monolith" data-range="60"><i class="fas fa-skull"></i> Monolith</button>
               <button class="palette-btn" data-defense="inferno" data-range="50"><i class="fas fa-fire-burner"></i> Inferno Tower</button>
               <button class="palette-btn" data-defense="townhall" data-range="45"><i class="fas fa-castle"></i> Town Hall Weapon</button>
+              
+              <!-- Traps -->
+              <button class="palette-btn" data-defense="tornado" data-range="40" style="border-color: rgba(139, 68, 253, 0.35);"><i class="fas fa-wind"></i> Tornado Trap</button>
+              <button class="palette-btn" data-defense="giantbomb" data-range="20" style="border-color: rgba(236, 59, 131, 0.35);"><i class="fas fa-bomb"></i> Giant Bomb</button>
+              <button class="palette-btn" data-defense="airmine" data-range="30" style="border-color: rgba(74, 219, 134, 0.35);"><i class="fas fa-ghost"></i> Air Mine</button>
             </div>
-            <button class="primary-btn" onclick="clearBaseCanvas()" style="padding: 8px 16px; font-size: 13px; margin-left: auto; background: var(--clash-elixir-gradient); box-shadow: none;">Reset Grid</button>
+            <div style="display: flex; gap: 8px; margin-left: auto;">
+              <button class="primary-btn" id="canvas-heatmap-toggle-btn" onclick="toggleDPSHeatmap()" style="padding: 8px 14px; font-size: 13px; background: rgba(245, 166, 35, 0.15); border: 1px solid var(--clash-gold); color: var(--clash-gold); box-shadow: none;">Heatmap: OFF</button>
+              <button class="primary-btn" id="canvas-draw-path-btn" onclick="togglePathDrawing()" style="padding: 8px 14px; font-size: 13px; background: rgba(74, 144, 226, 0.15); border: 1px solid #4a90e2; color: #4a90e2; box-shadow: none;">Draw Path</button>
+              <button class="primary-btn" onclick="clearBaseCanvas()" style="padding: 8px 16px; font-size: 13px; background: var(--clash-elixir-gradient); box-shadow: none;">Reset Grid</button>
+            </div>
           </div>
 
           <div class="canvas-grid-container" id="base-grid-container">
             <div class="canvas-grid-lines"></div>
+            <svg class="canvas-svg-overlay" id="canvas-svg-overlay"></svg>
             <!-- Placed elements dynamically render here -->
           </div>
           
@@ -582,6 +601,58 @@
         </div>
       </div>
     </section>
+
+    <!-- VIEW: Legend Run Simulator -->
+    <section id="legends-pane" class="view-pane" role="tabpanel" aria-labelledby="legends-tab">
+      <div class="explorer-grid" style="grid-template-columns: 1fr 1.6fr; gap: 24px;">
+        <!-- Left: input panel -->
+        <div class="sidebar-card">
+          <h3 class="gold-gradient-text" style="font-size: 20px; font-weight: 800; display:flex; align-items:center; gap:8px;"><i class="fas fa-shield-alt"></i> Run Tracker</h3>
+          <p style="font-size: 12px; color: var(--text-muted); margin-bottom: 16px;">Log your 8 daily Legend matches to calculate net trophies and forecast end-of-season outcomes.</p>
+          
+          <div class="input-group">
+            <label for="legend-start-trophies">Starting Trophies</label>
+            <input type="number" id="legend-start-trophies" value="5200" style="width: 100%; background: var(--bg-stone); border: 1px solid var(--border-subtle); color: var(--text-main); padding: 10px; border-radius: 8px;">
+          </div>
+          
+          <div style="display:flex; flex-direction:column; gap: 8px; margin-top: 16px;">
+            <button class="primary-btn" onclick="simulateAllLegendRuns()">Simulate Random Runs</button>
+            <button class="config-btn" onclick="clearLegendRuns()">Reset Daily Logs</button>
+          </div>
+        </div>
+        
+        <!-- Right: Results & Chart -->
+        <div style="display:flex; flex-direction:column; gap:24px; width: 100%;">
+          <div class="results-card" style="min-height: auto;">
+            <div class="flex-between border-bottom-subtle pb-12" style="display:flex; justify-content:space-between; align-items:center;">
+              <h3 style="font-size: 18px; font-weight: 800; margin: 0;">🏆 Run Balance Forecast</h3>
+              <span class="badge-small" id="legend-net-trophies" style="background: rgba(74, 219, 134, 0.15); color: #4adb86; font-size: 11px;">+0 Trophies</span>
+            </div>
+            
+            <div class="chart-container-responsive mt-12" style="position: relative; height: 220px; width: 100%;">
+              <canvas id="legendForecastCanvas"></canvas>
+            </div>
+          </div>
+          
+          <!-- Attacks vs Defenses grids -->
+          <div class="explorer-grid" style="grid-template-columns: 1fr 1fr; gap: 16px; margin-top: 8px;">
+            <div class="results-card" style="min-height: auto; padding: 16px;">
+              <h4 style="font-size: 13px; color: #4a90e2; font-weight: bold; margin-bottom: 12px; display:flex; align-items:center; gap:8px;"><i class="fas fa-sword"></i> 8 Attacks log</h4>
+              <div id="legend-attacks-grid" style="display:flex; flex-direction:column; gap: 8px;">
+                <!-- Populated dynamically -->
+              </div>
+            </div>
+            
+            <div class="results-card" style="min-height: auto; padding: 16px;">
+              <h4 style="font-size: 13px; color: var(--clash-elixir); font-weight: bold; margin-bottom: 12px; display:flex; align-items:center; gap:8px;"><i class="fas fa-shield"></i> 8 Defenses log</h4>
+              <div id="legend-defenses-grid" style="display:flex; flex-direction:column; gap: 8px;">
+                <!-- Populated dynamically -->
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
   </main>
 
   <!-- Settings / API Configuration Modal -->
@@ -624,6 +695,16 @@
         </div>
       </div>
 
+      <div class="input-group" style="margin-top: 8px; border-top: 1px solid var(--border-subtle); padding-top: 16px;">
+        <label for="discord-webhook-input" style="color: var(--clash-gold); font-weight: 700;">🔔 Discord Strategy Webhook URL</label>
+        <input type="text" id="discord-webhook-input" placeholder="https://discord.com/api/webhooks/... (persists locally)">
+        <div style="display: flex; gap: 8px; margin-top: 8px;">
+          <button class="primary-btn" id="test-webhook-btn" onclick="triggerWebhookTest()" style="padding: 6px 12px; font-size: 11px; box-shadow: none;">Send Test Embed</button>
+          <button class="config-btn" id="simulate-webhook-btn" onclick="simulateWebhookEmbed()" style="padding: 6px 12px; font-size: 11px;">Simulate Discord View</button>
+        </div>
+        <div id="discord-simulation-panel"></div>
+      </div>
+
       <button class="primary-btn" id="save-settings-btn" style="margin-top: 8px;">Save Configurations</button>
     </div>
   </dialog>
@@ -649,6 +730,37 @@
   <button id="global-inspect-btn" onclick="openPayloadInspector()" title="Open Raw API JSON Inspector" class="floating-inspect-btn">
     <i class="fas fa-code"></i>
   </button>
+
+  <!-- Hero Equipment Forge Sandbox Dialogue -->
+  <dialog class="modal" id="ore-forge-modal">
+    <div class="ore-forge-modal-content">
+      <div class="modal-header">
+        <h3 style="color: var(--clash-gold); font-size: 20px; font-weight: 800; display: flex; align-items: center; gap: 10px;">
+          <i class="fas fa-hammer"></i> Hero Ore Forge Sandbox
+        </h3>
+        <button class="close-btn" onclick="closeOreForgeModal()">&times;</button>
+      </div>
+      <p style="color: var(--text-muted); font-size: 13px; margin-top: 4px;">Simulate equipment upgrade costs and stat returns instantly.</p>
+      
+      <div class="forge-layout">
+        <!-- Left: Equipment grid -->
+        <div>
+          <h4 style="font-size: 14px; margin-bottom: 12px; color: var(--text-main);">Select Equipment to Upgrade</h4>
+          <div class="forge-equipment-grid" id="forge-equipment-grid-container">
+            <!-- Populated dynamically -->
+          </div>
+        </div>
+        
+        <!-- Right: Upgrade control panel -->
+        <div class="forge-control-panel" id="forge-control-panel-container">
+          <div style="text-align: center; padding: 40px 0; color: var(--text-muted);">
+            <i class="fas fa-arrow-left" style="font-size: 28px; margin-bottom: 10px; opacity: 0.5;"></i>
+            <p>Select a gear piece from the left to start forging.</p>
+          </div>
+        </div>
+      </div>
+    </div>
+  </dialog>
 
   <!-- Scripts -->
   <script src="mockData.js"></script>

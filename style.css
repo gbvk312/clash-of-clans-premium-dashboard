@@ -3170,4 +3170,406 @@ dialog.drawer[open] {
   transform: scale(0.95);
 }
 
+/* ====================================================== */
+/*          ⚔️ ALL NEW PREMIUM EXPANDED STYLES            */
+/* ====================================================== */
+
+/* 🏰 Progression Audit Styles */
+.progression-audit-container {
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+}
+.progression-audit-card {
+  background: linear-gradient(135deg, rgba(245, 166, 35, 0.05) 0%, rgba(18, 21, 25, 0.95) 100%);
+  border: 1px solid rgba(245, 166, 35, 0.2);
+  border-radius: 16px;
+  padding: 24px;
+  margin-top: 24px;
+}
+.gauge-wrapper {
+  display: flex;
+  align-items: center;
+  gap: 24px;
+  flex-wrap: wrap;
+}
+.radial-gauge {
+  position: relative;
+  width: 100px;
+  height: 100px;
+  border-radius: 50%;
+  background: conic-gradient(var(--gauge-color) var(--gauge-percent), var(--bg-stone-medium) 0);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-shadow: 0 0 20px var(--gauge-glow);
+}
+.radial-gauge::before {
+  content: "";
+  position: absolute;
+  width: 84px;
+  height: 84px;
+  border-radius: 50%;
+  background: #12161f;
+}
+.radial-gauge-text {
+  position: relative;
+  font-size: 22px;
+  font-weight: 800;
+  color: var(--text-main);
+  text-shadow: 0 0 10px rgba(255,255,255,0.1);
+}
+.progression-bars-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 16px;
+  margin-top: 20px;
+}
+@media (max-width: 600px) {
+  .progression-bars-grid {
+    grid-template-columns: 1fr;
+  }
+}
+.progression-bar-row {
+  background: rgba(0,0,0,0.15);
+  border: 1px solid var(--border-subtle);
+  border-radius: 10px;
+  padding: 12px;
+}
+.progression-bar-fill-container {
+  height: 8px;
+  background: var(--bg-stone-medium);
+  border-radius: 4px;
+  overflow: hidden;
+  margin-top: 6px;
+}
+.progression-bar-fill {
+  height: 100%;
+  background: var(--fill-color);
+  border-radius: 4px;
+  transition: width 1s ease-out;
+}
+
+/* 🦸 Hero Equipment Forge Sandbox */
+.ore-forge-modal-content {
+  width: 90%;
+  max-width: 950px;
+  background: rgba(18, 22, 28, 0.95);
+  backdrop-filter: blur(25px);
+  border: 1px solid rgba(139, 68, 253, 0.35);
+  border-radius: 20px;
+  box-shadow: 0 10px 40px rgba(0, 0, 0, 0.6);
+  padding: 28px;
+  animation: modalSlideIn 0.3s cubic-bezier(0.18, 0.89, 0.32, 1.28);
+}
+.forge-layout {
+  display: grid;
+  grid-template-columns: 1.2fr 1fr;
+  gap: 24px;
+  margin-top: 20px;
+}
+@media (max-width: 800px) {
+  .forge-layout {
+    grid-template-columns: 1fr;
+  }
+}
+.forge-equipment-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(130px, 1fr));
+  gap: 12px;
+  max-height: 380px;
+  overflow-y: auto;
+  padding-right: 6px;
+}
+.forge-equipment-card {
+  background: var(--bg-stone-dark);
+  border: 1.5px solid var(--border-subtle);
+  border-radius: 12px;
+  padding: 12px;
+  cursor: pointer;
+  text-align: center;
+  transition: var(--transition-smooth);
+  position: relative;
+}
+.forge-equipment-card:hover, .forge-equipment-card.selected {
+  border-color: var(--clash-dark-elixir);
+  background: rgba(139, 68, 253, 0.08);
+  transform: translateY(-2px);
+}
+.forge-equipment-card.selected {
+  box-shadow: 0 0 15px rgba(139,68,253,0.3);
+}
+.forge-level-pill {
+  background: var(--clash-gold-gradient);
+  color: #000;
+  font-size: 10px;
+  font-weight: 800;
+  padding: 2px 6px;
+  border-radius: 6px;
+  position: absolute;
+  top: 8px;
+  right: 8px;
+}
+.forge-control-panel {
+  background: var(--bg-stone-dark);
+  border: 1px solid var(--border-subtle);
+  border-radius: 14px;
+  padding: 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+.ore-cost-badge-row {
+  display: grid;
+  grid-template-columns: 1fr 1fr 1fr;
+  gap: 10px;
+}
+.ore-cost-badge {
+  background: var(--bg-stone-medium);
+  border: 1px solid var(--border-subtle);
+  border-radius: 10px;
+  padding: 10px;
+  text-align: center;
+}
+.ore-cost-badge img {
+  width: 24px;
+  height: 24px;
+  object-fit: contain;
+  margin-bottom: 4px;
+}
+.ore-cost-badge div {
+  font-size: 14px;
+  font-weight: 800;
+}
+.ore-cost-badge span {
+  font-size: 10px;
+  color: var(--text-muted);
+}
+.level-spinner-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  background: var(--bg-stone-medium);
+  border-radius: 10px;
+  padding: 10px 16px;
+  border: 1px solid var(--border-subtle);
+}
+.level-spinner-btn {
+  background: var(--bg-stone-light);
+  border: 1px solid var(--border-subtle);
+  color: var(--text-main);
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  font-weight: 800;
+  cursor: pointer;
+  transition: var(--transition-smooth);
+}
+.level-spinner-btn:hover {
+  background: var(--clash-gold-gradient);
+  color: #000;
+  border-color: #ffe066;
+}
+
+/* 🛡️ Defensive Canvas Pro & Paths */
+.dps-heatmap-active .range-circle {
+  mix-blend-mode: color-dodge;
+  opacity: 0.6 !important;
+  box-shadow: 0 0 35px var(--clash-elixir-glow);
+}
+.canvas-svg-overlay {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  pointer-events: none;
+  z-index: 4;
+}
+
+/* 🔊 Sound system Toggle bar indicator */
+.theme-toggle-btn.sound-on {
+  border-color: var(--clash-gold);
+  color: var(--clash-gold);
+  box-shadow: 0 0 10px rgba(245, 166, 35, 0.15);
+}
+
+/* 🔔 Discord Webhook Simulated Embed */
+.sim-discord-card {
+  background: #313338;
+  border-left: 4px solid var(--clash-gold);
+  border-radius: 4px;
+  padding: 16px;
+  margin-top: 16px;
+  color: #dbdee1;
+  font-family: sans-serif;
+  font-size: 13px;
+  max-width: 450px;
+  animation: slideDown 0.25s ease-out;
+}
+.sim-discord-header {
+  font-weight: 800;
+  color: #fff;
+  font-size: 15px;
+  margin-bottom: 8px;
+}
+.sim-discord-field-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+  margin-top: 12px;
+}
+.sim-discord-field strong {
+  color: #b5bac1;
+  font-size: 11px;
+  display: block;
+}
+
+/* ====================================================== */
+/*          ⚔️ LEVEL 2 EXPANDED PREMIUM STYLES            */
+/* ====================================================== */
+
+/* 🛡️ Legend League Simulator Slots */
+.legend-slot-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  background: var(--bg-stone-dark);
+  border: 1px solid var(--border-subtle);
+  border-radius: 8px;
+  padding: 8px 12px;
+  transition: var(--transition-smooth);
+}
+.legend-slot-row:hover {
+  border-color: rgba(255,255,255,0.08);
+}
+.legend-slot-title {
+  font-size: 11px;
+  font-weight: 800;
+  color: var(--text-muted);
+}
+.legend-select-control {
+  background: var(--bg-stone-medium);
+  border: 1px solid var(--border-subtle);
+  color: var(--text-main);
+  padding: 4px 8px;
+  border-radius: 6px;
+  font-size: 12px;
+  outline: none;
+  width: 70px;
+}
+.legend-select-control:focus {
+  border-color: var(--clash-gold);
+}
+
+/* 🏰 Capital Raid Weekend & GPA Ranks */
+.gpa-leaderboard-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: 12px;
+}
+.gpa-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  background: var(--bg-stone-dark);
+  border: 1px solid var(--border-subtle);
+  border-radius: 10px;
+  padding: 10px 16px;
+  transition: var(--transition-smooth);
+}
+.gpa-row:hover {
+  border-color: var(--clash-gold);
+  background: rgba(245, 166, 35, 0.02);
+}
+.gpa-rank-tag {
+  background: var(--bg-stone-medium);
+  color: var(--text-muted);
+  width: 24px;
+  height: 24px;
+  font-weight: 800;
+  font-size: 11px;
+  border-radius: 6px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.gpa-rank-tag.gold { background: var(--clash-gold-gradient); color: #000; }
+.gpa-rank-tag.elixir { background: var(--clash-elixir-gradient); color: #fff; }
+
+/* 🎯 Clan Games Milestone Tracks */
+.games-milestone-track {
+  position: relative;
+  height: 6px;
+  background: var(--bg-stone-medium);
+  border-radius: 3px;
+  margin: 20px 0;
+  width: 100%;
+}
+.games-milestone-fill {
+  position: absolute;
+  top: 0;
+  left: 0;
+  height: 100%;
+  background: var(--clash-gold-gradient);
+  border-radius: 3px;
+  transition: width 1s cubic-bezier(0.4, 0, 0.2, 1);
+}
+.games-milestone-nodes-row {
+  display: flex;
+  justify-content: space-between;
+  position: relative;
+  margin-top: -24px;
+}
+.games-milestone-node {
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  background: var(--bg-stone-medium);
+  border: 2px solid var(--border-subtle);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 12px;
+  font-weight: 800;
+  color: var(--text-muted);
+  cursor: pointer;
+  transition: var(--transition-smooth);
+  z-index: 5;
+}
+.games-milestone-node.unlocked {
+  background: var(--clash-gold-gradient);
+  border-color: #ffe066;
+  color: #000;
+  box-shadow: 0 0 10px var(--clash-gold-glow);
+}
+
+/* 🧠 AI Strategy Coach sliders & timelines */
+.ai-coach-card {
+  background: linear-gradient(135deg, rgba(74, 144, 226, 0.08) 0%, rgba(18, 21, 25, 0.95) 100%);
+  border: 1px solid rgba(74, 144, 226, 0.35);
+  border-radius: 14px;
+  padding: 20px;
+  margin-top: 24px;
+}
+.ai-coach-timeline-slider {
+  width: 100%;
+  accent-color: #4a90e2;
+  cursor: pointer;
+  margin: 16px 0;
+}
+.ai-coach-funnel-step {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 10px;
+  background: rgba(0,0,0,0.15);
+  border: 1px solid var(--border-subtle);
+  border-radius: 8px;
+  margin-top: 8px;
+}
+
+
+
 
