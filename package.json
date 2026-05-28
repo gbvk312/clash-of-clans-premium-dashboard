@@ -1,11 +1,18 @@
 {
-  "name": "clash-command-center",
+  "name": "@gbvk312/clash-of-clans-premium-dashboard",
   "version": "2.0.0",
   "description": "Premium Clash of Clans dashboard with real-time clan stats, player profiles, war tracking, and clan comparison tools.",
   "main": "server.js",
   "scripts": {
     "start": "node server.js",
     "dev": "node server.js"
+  },
+  "publishConfig": {
+    "registry": "https://npm.pkg.github.com"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/gbvk312/clash-of-clans-premium-dashboard.git"
   },
   "keywords": ["clash-of-clans", "dashboard", "api", "gaming"],
   "license": "MIT",
