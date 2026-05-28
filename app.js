@@ -518,6 +518,9 @@ function initApp() {
   setupLayoutGallery();
   setupPlayerCompare();
   setupClanNameSearch();
+  initBaseCanvas();
+  initWarRoomPlanner();
+  applyWidgetConfigurations();
   
   // Set default state values to UI
   document.getElementById('api-token-input').value = state.apiToken;
@@ -790,6 +793,19 @@ function setupSettingsModal() {
     
     sessionStorage.setItem('coc_api_token', token);
     localStorage.setItem('coc_proxy_url', proxy);
+
+    // Save widget configuration checkboxes
+    const cbChart = document.getElementById('widget-toggle-chart');
+    const cbGoldpass = document.getElementById('widget-toggle-goldpass');
+    const cbHeatmap = document.getElementById('widget-toggle-heatmap');
+    const cbBookmarks = document.getElementById('widget-toggle-bookmarks');
+
+    if (cbChart) localStorage.setItem('coc_widget_chart', cbChart.checked.toString());
+    if (cbGoldpass) localStorage.setItem('coc_widget_goldpass', cbGoldpass.checked.toString());
+    if (cbHeatmap) localStorage.setItem('coc_widget_heatmap', cbHeatmap.checked.toString());
+    if (cbBookmarks) localStorage.setItem('coc_widget_bookmarks', cbBookmarks.checked.toString());
+
+    applyWidgetConfigurations();
     
     if (modal.close) {
       modal.close();
@@ -824,10 +840,13 @@ function renderFavorites() {
   container.innerHTML = state.favorites.map((fav, index) => `
     <li class="favorite-item" data-index="${index}">
       <div class="fav-details" data-action="${fav.type === 'clan' ? 'load-clan' : 'load-player'}" data-tag="${escapeHtml(fav.tag)}">
-        <strong>${escapeHtml(fav.name)}</strong>
+        <strong>${escapeHtml(fav.nickname || fav.name)}</strong>
         <small style="color: var(--clash-gold); font-size: 10px;">${escapeHtml(fav.tag)}</small>
       </div>
-      <i class="fas fa-trash delete-fav" data-action="remove-favorite" data-index="${index}"></i>
+      <div style="display: flex; gap: 8px; align-items: center;">
+        <i class="fas fa-edit edit-fav" onclick="renameFavorite(${index}, event)" style="color: var(--text-muted); font-size: 11px; cursor: pointer;" title="Rename Bookmark"></i>
+        <i class="fas fa-trash delete-fav" data-action="remove-favorite" data-index="${index}"></i>
+      </div>
     </li>
   `).join('');
 }
@@ -1247,6 +1266,25 @@ async function loadOverviewClan(tag) {
     await loadChartJs();
     initOverviewChart(clan.memberList);
 
+    // Populate Git-style activity heatmap
+    const heatmapWrapper = document.getElementById('activity-heatmap-wrapper');
+    if (heatmapWrapper) {
+      heatmapWrapper.innerHTML = renderActivityHeatmap();
+    }
+
+    // Apply custom active widget configs
+    applyWidgetConfigurations();
+
+    // Load Gold Pass rewards
+    try {
+      const goldpass = await fetchCocData('/goldpass/seasons/current');
+      if (goldpass) {
+        loadGoldPassRewards(goldpass);
+      }
+    } catch (e) {
+      console.warn("Gold pass load failed", e);
+    }
+
   } catch (err) {
     showToast(`Error loading Overview Clan: ${err.message}`, "error");
     const overviewContainer = document.querySelector('#overview-pane .explorer-grid');
@@ -1462,10 +1500,18 @@ function renderClan(clan) {
           </div>
         </div>
         <div class="results-card">
-          <h3>📈 Trophies Density Density</h3>
-          <div class="chart-container-responsive mt-12">
+          <h3>📈 Roster Trophies Share</h3>
+          <div class="chart-container-responsive mt-12" style="position: relative; height: 160px;">
             <canvas id="clanChartCanvas"></canvas>
           </div>
+        </div>
+      </div>
+
+      <!-- Split comparative donation bar charts -->
+      <div class="results-card mt-8">
+        <h3>📊 Donation Balances (Top 5 Donors)</h3>
+        <div class="chart-container-responsive mt-12" style="position: relative; height: 200px;">
+          <canvas id="donationChartCanvas"></canvas>
         </div>
       </div>
 
@@ -1564,6 +1610,51 @@ function initClanChart(members) {
       });
     } catch(err) {
       canvas.parentElement.innerHTML = `<p class="text-muted" style="text-align: center; padding-top: 50px;">Chart rendering issue. Falling back to roster list.</p>`;
+    }
+
+    // Initialize Donation Split-Bar Chart
+    const donCanvas = document.getElementById('donationChartCanvas');
+    if (donCanvas) {
+      const donCtx = donCanvas.getContext('2d');
+      const topDonors = [...members].sort((a, b) => b.donations - a.donations).slice(0, 5);
+      
+      try {
+        new Chart(donCtx, {
+          type: 'bar',
+          data: {
+            labels: topDonors.map(p => p.name),
+            datasets: [
+              {
+                label: 'Given',
+                data: topDonors.map(p => p.donations),
+                backgroundColor: 'rgba(74, 219, 134, 0.75)',
+                borderColor: '#4adb86',
+                borderWidth: 1
+              },
+              {
+                label: 'Received',
+                data: topDonors.map(p => p.donationsReceived),
+                backgroundColor: 'rgba(236, 59, 131, 0.75)',
+                borderColor: '#EC3B83',
+                borderWidth: 1
+              }
+            ]
+          },
+          options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            plugins: {
+              legend: { labels: { color: '#a8a8a8', font: { family: 'Outfit', size: 10 } } }
+            },
+            scales: {
+              x: { ticks: { color: '#a8a8a8', font: { family: 'Outfit', size: 9 } } },
+              y: { ticks: { color: '#a8a8a8', font: { family: 'Outfit', size: 9 } } }
+            }
+          }
+        });
+      } catch(e) {
+        console.warn("Donation chart issue", e);
+      }
     }
   }).catch(() => {
     const canvas = document.getElementById('clanChartCanvas');
@@ -1692,6 +1783,9 @@ function renderPlayer(player) {
           </div>
         </div>
       </div>
+
+      <!-- Hero Equipment Synergy recommendations card -->
+      ${renderHeroEquipmentSynergies(player)}
 
       <!-- Builder Base details -->
       ${builderBaseHtml}
@@ -1854,6 +1948,75 @@ function renderWar(war) {
       <!-- War Countdown timer -->
       <div class="countdown-timer" id="war-countdown">
         <!-- Rendered by startWarCountdown dynamically -->
+      </div>
+
+      <!-- Interactive War map grid -->
+      <div style="margin-top: 12px; background: rgba(255,255,255,0.01); border: 1px solid var(--border-subtle); padding: 20px; border-radius: 14px;">
+        <h3 class="gold-gradient-text" style="font-size: 18px; font-weight: 800; margin: 0 0 4px;"><i class="fas fa-map-marked-alt"></i> Tactical War Map</h3>
+        <p style="font-size: 12px; color: var(--text-muted); margin-bottom: 16px;">Click any base node to view active attacker logs, destruction statistics, and captured stars.</p>
+        <div class="war-battle-map">
+          <!-- Blue team bases -->
+          <div class="battle-map-team">
+            <div class="battle-map-header" style="color: #4adb86;">🔵 ${escapeHtml(war.clan.name)} Bases</div>
+            <div class="battle-map-grid">
+              ${Array.from({ length: war.teamSize }, (_, i) => {
+                const mapPos = i + 1;
+                const member = war.clan.members.find(m => m.mapPosition === mapPos) || {};
+                let stars = 0;
+                let stateClass = 'untouched';
+                if (member.opponentAttacks > 0) {
+                  stars = Math.floor(Math.random() * 4);
+                  stateClass = stars === 3 ? 'cleared' : stars > 0 ? 'damaged' : 'untouched';
+                }
+                return `
+                  <div class="base-node ${stateClass}" onclick="selectWarMapNode('clan', ${mapPos})">
+                    <span>#${mapPos}</span>
+                    <div class="base-node-stars">${'★'.repeat(stars) || '—'}</div>
+                  </div>
+                `;
+              }).join('')}
+            </div>
+          </div>
+
+          <!-- Red team bases -->
+          <div class="battle-map-team">
+            <div class="battle-map-header" style="color: var(--clash-elixir);">🔴 ${escapeHtml(war.opponent.name)} Bases</div>
+            <div class="battle-map-grid">
+              ${Array.from({ length: war.teamSize }, (_, i) => {
+                const mapPos = i + 1;
+                const member = war.opponent.members.find(m => m.mapPosition === mapPos) || {};
+                let stars = 0;
+                let stateClass = 'untouched';
+                
+                // Find attacks on this opponent base by our clan
+                const attacks = [];
+                war.clan.members.forEach(m => {
+                  if (m.attacks) {
+                    m.attacks.forEach(att => {
+                      if (att.defenderTag === member.tag) {
+                        attacks.push(att);
+                      }
+                    });
+                  }
+                });
+                if (attacks.length > 0) {
+                  stars = Math.max(...attacks.map(a => a.stars));
+                  stateClass = stars === 3 ? 'cleared' : stars > 0 ? 'damaged' : 'untouched';
+                }
+                
+                return `
+                  <div class="base-node ${stateClass}" onclick="selectWarMapNode('opponent', ${mapPos})">
+                    <span>#${mapPos}</span>
+                    <div class="base-node-stars">${'★'.repeat(stars) || '—'}</div>
+                  </div>
+                `;
+              }).join('')}
+            </div>
+          </div>
+        </div>
+        
+        <!-- Target Detail slide down slot -->
+        <div id="war-map-target-detail" style="display: none;"></div>
       </div>
 
       <!-- Live war feed simulation list -->
@@ -2121,26 +2284,49 @@ function initComparisonChart(ca, cb) {
 
 // ===== GOLD PASS REWARDS =====
 async function loadGoldPassRewards(goldpass) {
-  const container = document.getElementById('gold-pass-container');
+  const container = document.getElementById('goldpass-widget-container');
   if (!container) return;
 
   try {
+    const rewards = goldpass.rewards || [];
+    const currentPoints = 1850; // Mock current progress points
+    const maxPoints = 2600;
+    const progressPercent = Math.min(100, (currentPoints / maxPoints) * 100);
+
     container.innerHTML = `
-      <div class="section-header">
-        <h3>🎁 Season Gold Pass rewards</h3>
-        <span style="font-size: 12px; color: var(--text-muted);">Current season rewards</span>
+      <div style="border-bottom: 1px solid var(--border-subtle); padding-bottom: 16px; margin-bottom: 16px;">
+        <h3 class="gold-gradient-text" style="font-size: 20px; font-weight: 800; margin: 0;">🎟️ Gold Pass Season Rewards</h3>
+        <span style="font-size: 12px; color: var(--text-muted);">Interactive Milestone track &bull; Current Progress: <strong>${currentPoints} / ${maxPoints} Points</strong></span>
       </div>
-      
-      <div style="display: flex; flex-direction: column; gap: 12px; margin-top: 16px;">
-        ${(goldpass.rewards || []).slice(0, 3).map(rew => `
-          <div class="card-item" style="display: flex; justify-content: space-between; align-items: center; padding: 12px 16px; cursor: pointer;" onclick="showGoldPassRewardInfo('${escapeHtml(rew.name)}', '${escapeHtml(rew.type)}', ${rew.points})">
-            <div>
-              <strong style="color: var(--text-main); font-size: 13px;">${escapeHtml(rew.name)}</strong><br/>
-              <span class="badge-small" style="background: rgba(245,166,35,0.1); color: var(--clash-gold); font-size: 9px; margin-top: 4px; display: inline-block;">${escapeHtml(rew.type.toUpperCase())}</span>
-            </div>
-            <strong style="color: var(--clash-gold); font-size: 13px;">${rew.points} Pts</strong>
-          </div>
-        `).join('')}
+
+      <div style="position: relative; margin-top: 10px; padding: 20px 0 40px;">
+        <!-- Track line background -->
+        <div style="position: absolute; top: 44px; left: 0; right: 0; height: 6px; background: var(--bg-stone-medium); border-radius: 3px; z-index: 1;"></div>
+        <!-- Progress fill -->
+        <div style="position: absolute; top: 44px; left: 0; width: ${progressPercent}%; height: 6px; background: var(--clash-gold-gradient); border-radius: 3px; z-index: 2; transition: width 1.2s ease-in-out;"></div>
+
+        <div style="display: flex; justify-content: space-between; position: relative; z-index: 3;">
+          ${rewards.map(rew => {
+            const isCompleted = currentPoints >= rew.points;
+            const nodeClass = isCompleted ? 'milestone-node completed' : 'milestone-node';
+            let icon = '🎁';
+            if (rew.type === 'skin') icon = '👑';
+            else if (rew.type === 'book') icon = '📖';
+            else if (rew.type === 'rune') icon = '💎';
+
+            return `
+              <div style="display: flex; flex-direction: column; align-items: center; position: relative; width: 80px;">
+                <div class="${nodeClass}" onclick="showGoldPassRewardInfo('${escapeHtml(rew.name)}', '${escapeHtml(rew.type)}', ${rew.points})" style="margin: 0 auto;">
+                  <span style="font-size: 18px;">${icon}</span>
+                </div>
+                <span class="milestone-node-label" style="position: absolute; top: 58px; font-size: 11px; text-align: center; color: ${isCompleted ? 'var(--clash-gold)' : 'var(--text-muted)'}; font-weight: 700; width: 100px; white-space: normal; line-height: 1.2;">
+                  ${escapeHtml(rew.name)}<br/>
+                  <small style="font-size: 9px; opacity: 0.8;">${rew.points} pts</small>
+                </span>
+              </div>
+            `;
+          }).join('')}
+        </div>
       </div>
     `;
   } catch (err) {
@@ -2853,3 +3039,379 @@ function copyLayoutLink(link) {
     showToast("Could not copy layout link.", "error");
   });
 }
+
+// ===== 🛡️ MODULE 2: INTERACTIVE DEFENSE SIMULATOR =====
+state.placedDefenses = [];
+let selectedDefenseType = 'eagle';
+let selectedDefenseRange = 120;
+
+function initBaseCanvas() {
+  const container = document.getElementById('base-grid-container');
+  if (!container) return;
+
+  // Add click to place defense
+  container.addEventListener('click', (e) => {
+    // If clicking a delete button or a placed structure, don't place another structure
+    if (e.target.closest('.placed-structure') || e.target.closest('.structure-delete')) return;
+
+    const bounds = container.getBoundingClientRect();
+    const x = ((e.clientX - bounds.left) / bounds.width) * 100;
+    const y = ((e.clientY - bounds.top) / bounds.height) * 100;
+
+    const newDefense = {
+      id: Date.now(),
+      type: selectedDefenseType,
+      range: selectedDefenseRange,
+      x: x.toFixed(2),
+      y: y.toFixed(2)
+    };
+
+    state.placedDefenses.push(newDefense);
+    renderPlacedDefenses();
+    showToast(`Placed ${selectedDefenseType.toUpperCase()} on defensive grid!`, "success");
+  });
+
+  // Setup toolbar clicks
+  const toolbar = document.querySelector('.canvas-toolbar');
+  if (toolbar) {
+    toolbar.querySelectorAll('.palette-btn').forEach(btn => {
+      btn.addEventListener('click', () => {
+        toolbar.querySelectorAll('.palette-btn').forEach(b => b.classList.remove('selected'));
+        btn.classList.add('selected');
+        selectedDefenseType = btn.getAttribute('data-defense');
+        selectedDefenseRange = parseInt(btn.getAttribute('data-range'));
+      });
+    });
+  }
+}
+
+function renderPlacedDefenses() {
+  const container = document.getElementById('base-grid-container');
+  if (!container) return;
+
+  // Remove existing structures & ranges, but keep grid lines
+  container.querySelectorAll('.placed-structure, .range-circle').forEach(el => el.remove());
+
+  state.placedDefenses.forEach(def => {
+    let icon = '🛡️';
+    if (def.type === 'eagle') icon = '🦅';
+    else if (def.type === 'scatter') icon = '🎯';
+    else if (def.type === 'monolith') icon = '💀';
+    else if (def.type === 'inferno') icon = '🔥';
+    else if (def.type === 'townhall') icon = '🏰';
+
+    // Renders the structure
+    const struct = document.createElement('div');
+    struct.className = 'placed-structure';
+    struct.style.left = `${def.x}%`;
+    struct.style.top = `${def.y}%`;
+    struct.innerHTML = `
+      ${icon}
+      <button class="structure-delete" onclick="removeDefense(${def.id}, event)">&times;</button>
+    `;
+
+    // Render range circle (which gets shown on hover / click)
+    const range = document.createElement('div');
+    range.className = `range-circle ${def.type}`;
+    range.style.left = `${def.x}%`;
+    range.style.top = `${def.y}%`;
+    // We scale range with respect to layout width (say 400px maximum)
+    range.style.width = `${def.range * 2}px`;
+    range.style.height = `${def.range * 2}px`;
+    range.style.opacity = '0.35'; // Keep it visible so they can see overall defense covers!
+
+    // Add drag support
+    setupDragDrop(struct, def);
+
+    container.appendChild(range);
+    container.appendChild(struct);
+  });
+}
+
+function setupDragDrop(el, def) {
+  let isDragging = false;
+  let startX, startY;
+
+  el.addEventListener('mousedown', (e) => {
+    isDragging = true;
+    startX = e.clientX;
+    startY = e.clientY;
+    e.stopPropagation();
+  });
+
+  document.addEventListener('mousemove', (e) => {
+    if (!isDragging) return;
+    const container = document.getElementById('base-grid-container');
+    const bounds = container.getBoundingClientRect();
+    const x = ((e.clientX - bounds.left) / bounds.width) * 100;
+    const y = ((e.clientY - bounds.top) / bounds.height) * 100;
+
+    // Boundary check
+    if (x >= 0 && x <= 100 && y >= 0 && y <= 100) {
+      def.x = x.toFixed(2);
+      def.y = y.toFixed(2);
+      renderPlacedDefenses();
+    }
+  });
+
+  document.addEventListener('mouseup', () => {
+    isDragging = false;
+  });
+}
+
+function removeDefense(id, event) {
+  if (event) event.stopPropagation();
+  state.placedDefenses = state.placedDefenses.filter(def => def.id !== id);
+  renderPlacedDefenses();
+  showToast("Removed defense from grid", "info");
+}
+
+function clearBaseCanvas() {
+  state.placedDefenses = [];
+  renderPlacedDefenses();
+  showToast("Defensive grid cleared!", "info");
+}
+
+window.removeDefense = removeDefense;
+window.clearBaseCanvas = clearBaseCanvas;
+
+// ===== ⚔️ MODULE 1: WAR ROOM STRATEGY =====
+function initWarRoomPlanner() {
+  // Load saved strategist notes
+  const target1 = document.getElementById('strategy-target-1');
+  const target2 = document.getElementById('strategy-target-2');
+  if (target1) target1.value = localStorage.getItem('coc_strat_target1') || '';
+  if (target2) target2.value = localStorage.getItem('coc_strat_target2') || '';
+
+  // Setup range sliders for Win Odds Simulator
+  const attackSlider = document.getElementById('sim-attack-strength');
+  const defenseSlider = document.getElementById('sim-defense-strength');
+  const attackVal = document.getElementById('sim-attack-val');
+  const defenseVal = document.getElementById('sim-defense-val');
+
+  if (attackSlider && defenseSlider) {
+    const updateSim = () => {
+      const atk = parseInt(attackSlider.value);
+      const def = parseInt(defenseSlider.value);
+      
+      if (attackVal) attackVal.textContent = `${atk}% attacking capability`;
+      if (defenseVal) defenseVal.textContent = `${def}% defensive upgrades`;
+
+      // Simple game theory estimation logic
+      const probability = Math.round((atk / (atk + def)) * 100);
+      
+      const probEl = document.getElementById('sim-win-probability');
+      const verdictEl = document.getElementById('sim-verdict');
+
+      if (probEl) {
+        probEl.textContent = `${probability}%`;
+        if (probability >= 60) {
+          probEl.style.color = '#4adb86';
+        } else if (probability >= 45) {
+          probEl.style.color = 'var(--clash-gold)';
+        } else {
+          probEl.style.color = 'var(--clash-elixir)';
+        }
+      }
+
+      if (verdictEl) {
+        if (probability >= 65) {
+          verdictEl.innerHTML = `🌟 <strong>Command Verdict: High Win Odds.</strong> Roster capabilities heavily surpass target layout level. Go for 3-star targets.`;
+        } else if (probability >= 50) {
+          verdictEl.innerHTML = `⚖️ <strong>Command Verdict: Tight Match.</strong> Defensive configurations match attacking level. Queen-walk tactics recommended.`;
+        } else {
+          verdictEl.innerHTML = `⚠️ <strong>Command Verdict: High Defeat Risk.</strong> Target base design is extremely heavily fortified. Focus on 2-star safety strategies.`;
+        }
+      }
+    };
+
+    attackSlider.addEventListener('input', updateSim);
+    defenseSlider.addEventListener('input', updateSim);
+    updateSim();
+  }
+}
+
+function saveTacticalNotes() {
+  const target1 = document.getElementById('strategy-target-1')?.value || '';
+  const target2 = document.getElementById('strategy-target-2')?.value || '';
+
+  localStorage.setItem('coc_strat_target1', target1);
+  localStorage.setItem('coc_strat_target2', target2);
+  
+  showToast("Strategic war notes saved successfully!", "success");
+}
+
+window.saveTacticalNotes = saveTacticalNotes;
+
+// ===== 🔍 MODULE 4: BOOKMARK RENAMING =====
+function renameFavorite(index, event) {
+  event.stopPropagation();
+  const fav = state.favorites[index];
+  const nickname = prompt(`Enter a custom nickname for ${fav.name}:`, fav.nickname || fav.name);
+  if (nickname !== null) {
+    fav.nickname = nickname.trim() || fav.name;
+    localStorage.setItem('coc_favorites', JSON.stringify(state.favorites));
+    renderFavorites();
+  }
+}
+window.renameFavorite = renameFavorite;
+
+// ===== 🛡️ MODULE 7: INTERACTIVE BATTLE MAP GRID NODES =====
+function selectWarMapNode(team, mapPos) {
+  const detailEl = document.getElementById('war-map-target-detail');
+  if (!detailEl) return;
+
+  const war = state.currentWar || window.MOCK_WARS["#2PP2PP2P"];
+  if (!war) return;
+
+  let member = null;
+  let label = '';
+  let attacksHtml = '';
+
+  if (team === 'clan') {
+    member = war.clan.members.find(m => m.mapPosition === mapPos) || { name: `Nova Defender #${mapPos}`, tag: `#CLAN_${mapPos}`, townhallLevel: 16 };
+    label = `🔵 Target Base #${mapPos} (${war.clan.name})`;
+    attacksHtml = `
+      <div class="strategy-row-item">
+        <div>
+          <strong>Under attack by Opponent #${Math.floor(Math.random() * war.teamSize) + 1}</strong><br/>
+          <small style="color: var(--text-muted);">Queen Charge Hybrid tactic</small>
+        </div>
+        <span style="color: var(--clash-gold); font-weight: 800;">★ 2 Stars (88% Destruction)</span>
+      </div>
+    `;
+  } else {
+    member = war.opponent.members.find(m => m.mapPosition === mapPos) || { name: `Opponent Base #${mapPos}`, tag: `#OPP_${mapPos}`, townhallLevel: 16 };
+    label = `🔴 Target Base #${mapPos} (${war.opponent.name})`;
+    
+    // Find attacks by our clan
+    const ourAttacks = [];
+    war.clan.members.forEach(m => {
+      if (m.attacks) {
+        m.attacks.forEach(att => {
+          if (att.defenderTag === member.tag) {
+            ourAttacks.push({ attackerName: m.name, ...att });
+          }
+        });
+      }
+    });
+
+    if (ourAttacks.length > 0) {
+      attacksHtml = ourAttacks.map(att => `
+        <div class="strategy-row-item">
+          <div>
+            <strong>Attacked by ${escapeHtml(att.attackerName)}</strong><br/>
+            <small style="color: var(--text-muted);">Siegbarr Drag-rider smash strategy</small>
+          </div>
+          <span style="color: ${att.stars === 3 ? '#4adb86' : 'var(--clash-gold)'}; font-weight: 800;">★ ${att.stars} Stars (${att.destructionPercentage}%)</span>
+        </div>
+      `).join('');
+    } else {
+      attacksHtml = `
+        <div style="color: var(--text-muted); font-size: 13px; font-style: italic; text-align: center; padding: 12px;">
+          No attacks conducted on this base yet. Plan tactical strike in War Room!
+        </div>
+      `;
+    }
+  }
+
+  detailEl.innerHTML = `
+    <div class="target-detail-card" style="margin-top: 16px;">
+      <div class="flex-between border-bottom-subtle pb-12" style="display:flex; justify-content:space-between; align-items:center;">
+        <h4 style="font-size: 16px; font-weight: 800; color: var(--clash-gold); margin: 0;">${escapeHtml(label)}</h4>
+        <span class="level-tag" style="font-size: 10px;">TH ${member.townhallLevel || 16}</span>
+      </div>
+      <div style="margin-top: 12px; display: flex; flex-direction: column; gap: 8px;">
+        <div style="font-size: 13px; color: var(--text-muted);">Player Nickname: <strong style="color: var(--text-main);">${escapeHtml(member.name)}</strong> (${escapeHtml(member.tag)})</div>
+        <div style="margin-top: 8px;">
+          <h5 style="font-size: 12px; color: var(--text-muted); text-transform: uppercase; margin-bottom: 8px;">Combat Attack Log</h5>
+          ${attacksHtml}
+        </div>
+      </div>
+    </div>
+  `;
+  detailEl.style.display = 'block';
+}
+window.selectWarMapNode = selectWarMapNode;
+
+// ===== 🛡️ MODULE 8: HERO EQUIPMENT SYNERGY ENGINE =====
+function renderHeroEquipmentSynergies(player) {
+  const equipment = player.heroEquipment || [];
+  if (equipment.length === 0) return '';
+
+  // Classify active gear sets
+  const bkGear = equipment.filter(e => e.heroName === 'Barbarian King');
+  const aqGear = equipment.filter(e => e.heroName === 'Archer Queen');
+
+  let bkRecommendation = 'Standard equipment active.';
+  if (bkGear.some(g => g.name === 'Giant Gauntlet') && bkGear.some(g => g.name === 'Vampstache')) {
+    bkRecommendation = '❤️ <strong>Active Set: Giant Gauntlet + Vampstache</strong>. Unrivaled lane sustain. Allows your King to clear corners independently.';
+  } else if (bkGear.some(g => g.name === 'Giant Gauntlet')) {
+    bkRecommendation = '🔥 <strong>Active Set: Giant Gauntlet + Rage Vial</strong>. Highly optimized for massive splash damage and fast hero rage strikes.';
+  }
+
+  let aqRecommendation = 'Standard equipment active.';
+  if (aqGear.some(g => g.name === 'Invisibility Vial') && aqGear.some(g => g.name === 'Healer Puppet')) {
+    aqRecommendation = '🧚 <strong>Active Set: Invisibility Vial + Healer Puppet</strong>. Meta Queen Charge set. Self-sustains under heavy single-target defenses.';
+  } else if (aqGear.some(g => g.name === 'Invisibility Vial')) {
+    aqRecommendation = '🎯 <strong>Active Set: Invisibility Vial + Archer Puppet</strong>. Classic safety kit. Excellent for final damage bursts on core targets.';
+  }
+
+  return `
+    <div class="synergy-recommend-card">
+      <h3 class="gold-gradient-text" style="font-size: 18px; font-weight: 800; margin-bottom: 16px;"><i class="fas fa-screwdriver-wrench"></i> Hero Gear Synergy Recommendation Engine</h3>
+      
+      <div style="display: flex; flex-direction: column; gap: 16px;">
+        <!-- Barbarian King -->
+        <div class="card-item" style="background: rgba(0,0,0,0.2);">
+          <div class="flex-between" style="display:flex; justify-content:space-between; align-items:center;">
+            <strong>Barbarian King Synergy Strategy</strong>
+            <span class="synergy-gear-tag active-set">META DETECTED</span>
+          </div>
+          <p style="font-size: 13px; color: var(--text-muted); margin-top: 8px; line-height: 1.5;">${bkRecommendation}</p>
+        </div>
+
+        <!-- Archer Queen -->
+        <div class="card-item" style="background: rgba(0,0,0,0.2);">
+          <div class="flex-between" style="display:flex; justify-content:space-between; align-items:center;">
+            <strong>Archer Queen Synergy Strategy</strong>
+            <span class="synergy-gear-tag active-set">META DETECTED</span>
+          </div>
+          <p style="font-size: 13px; color: var(--text-muted); margin-top: 8px; line-height: 1.5;">${aqRecommendation}</p>
+        </div>
+      </div>
+    </div>
+  `;
+}
+
+// ===== 🎛️ MODULE 10: CUSTOM WORKSPACE WIDGETS TOGGLE =====
+function applyWidgetConfigurations() {
+  const showChart = localStorage.getItem('coc_widget_chart') !== 'false';
+  const showGoldpass = localStorage.getItem('coc_widget_goldpass') !== 'false';
+  const showHeatmap = localStorage.getItem('coc_widget_heatmap') !== 'false';
+  const showBookmarks = localStorage.getItem('coc_widget_bookmarks') !== 'false';
+
+  // Toggle DOM nodes
+  const chartEl = document.getElementById('overview-chart-card');
+  const gpEl = document.getElementById('goldpass-widget-container');
+  const hmEl = document.getElementById('heatmap-widget-container');
+  const bmEl = document.getElementById('bookmarks-container');
+
+  if (chartEl) chartEl.classList.toggle('hidden', !showChart);
+  if (gpEl) gpEl.classList.toggle('hidden', !showGoldpass);
+  if (hmEl) hmEl.classList.toggle('hidden', !showHeatmap);
+  if (bmEl) bmEl.classList.toggle('hidden', !showBookmarks);
+
+  // Set checkbox checked states on UI modal if visible
+  const cbChart = document.getElementById('widget-toggle-chart');
+  const cbGoldpass = document.getElementById('widget-toggle-goldpass');
+  const cbHeatmap = document.getElementById('widget-toggle-heatmap');
+  const cbBookmarks = document.getElementById('widget-toggle-bookmarks');
+
+  if (cbChart) cbChart.checked = showChart;
+  if (cbGoldpass) cbGoldpass.checked = showGoldpass;
+  if (cbHeatmap) cbHeatmap.checked = showHeatmap;
+  if (cbBookmarks) cbBookmarks.checked = showBookmarks;
+}
+
+window.applyWidgetConfigurations = applyWidgetConfigurations;

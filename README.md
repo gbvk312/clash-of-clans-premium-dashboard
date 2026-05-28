@@ -8,15 +8,19 @@ A visually stunning, glassmorphic dark-mode dashboard for **Clash of Clans** pla
 
 ## ✨ Features
 
-* **🛡️ Home Command Center**: Instant overview of your designated home clan, featuring total trophies, active members, and war records.
+* **🛡️ Home Command Center**: Instant overview of your designated home clan, featuring total trophies, active members, war records, and configurable widget cards.
+* **🛡️ Interactive Defensive Range Simulator (NEW!)**: An advanced drag-and-drop tactical grid to place core defenses (Eagle Artillery, Scattershot, Monolith, Inferno, Town Hall Weapon) and display interactive coverage range circles.
+* **⚔️ War Room Strategy Planner & Win Simulator (NEW!)**: A strategic command post to log target attack guidelines and calculate war win probabilities with context-aware commander verdicts.
+* **🎟️ Season Gold Pass Milestone Track (NEW!)**: Overhauled Battle Pass track with linear progress fill and interactive reward node hovers detailing custom skins, books, and runes.
+* **🔍 Bookmark Custom Nicknames (NEW!)**: Pinned sidebar targets support custom annotations and alias tags (e.g. "Main Clan", "Alt Account").
+* **📈 Donation Split Bar Charts & Trophy Doughnuts (NEW!)**: Comparative Chart.js analytics inside the Clan details view mapping members' given vs received donation balances.
 * **🔍 Clan Search by Name & Tag**: Search clans dynamically by their tag or toggle to name-based lookup with active player count filters.
 * **⚔️ War Hub (CWL, History, & Attack Matrix)**: Track active wars in real-time, inspect Round-by-Round **CWL brackets & standings**, explore **War Log histories**, and utilize the brand-new **⚔️ War Attack Matrix** to inspect attacker-vs-defender star performance grids.
 * **📊 Player Head-to-Head Compare**: Compare two clashing profiles side-by-side on all major metrics, featuring automatic winner highlighting in vibrant HSL-green.
 * **🛡️ Community Layout Gallery**: A completely integrated tactical layout explorer. Filter community designs by Town Hall (TH 7-17) and base type (War, Home, CWL), upvote layouts dynamically, and copy layout links directly.
 * **🌎 Global & Local Leaderboards**: Search and browse top players and clans globally (International) or sorted by country regions (e.g. United States, India, Germany).
 * **🏰 Capital Raids Tracker**: Inspect your Clan Capital district layout levels and trace historical logs of Capital Gold gathered during Raid Weekends.
-* **🎟️ Gold Pass Season Progress**: Sleek glassmorphic Battle Pass widget showing season countdowns, progress bars, and high-tier rewards.
-* **📅 Clan Activity Heatmap**: Visual GitHub-style login and contribution calendar tracking mock or live activity indexes.
+* **📅 Clan Activity Heatmap**: Visual GitHub-style hourly/daily contribution calendar tracking mock or live activity indexes.
 * **💝 Donation Leaderboard**: Beautiful HSL-gradient donation progress meters displaying members' given vs received metrics.
 * **📥 CSV Data Exporter**: Integrated single-click CSV export utility to download local spreadsheets for active clan rosters and war campaign results.
 * **🌗 Dual Theme Controls**: Easily toggle between dark obsidian mode and sleek light mode.

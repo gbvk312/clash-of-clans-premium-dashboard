@@ -181,7 +181,7 @@
           </div>
 
           <!-- Overview Analytics Card -->
-          <div class="results-card" style="min-height: auto; justify-content: center; align-items: center; gap: 16px;">
+          <div class="results-card widget-box" id="overview-chart-card" style="min-height: auto; justify-content: center; align-items: center; gap: 16px;">
             <h3 style="font-size: 18px; font-weight: 700; align-self: flex-start; border-bottom: 1px solid var(--border-subtle); padding-bottom: 12px; width: 100%;">Clan League Distribution</h3>
             <div style="position: relative; width: 100%; height: 200px;">
               <canvas id="overview-chart"></canvas>
@@ -190,8 +190,17 @@
         </div>
 
         <!-- Gold Pass season tracker widget -->
-        <div class="results-card" id="goldpass-widget-container" style="min-height: auto; padding: 24px;">
+        <div class="results-card widget-box" id="goldpass-widget-container" style="min-height: auto; padding: 24px;">
           <!-- Populated by app.js -->
+        </div>
+
+        <!-- Activity Heatmap Calendar card -->
+        <div class="results-card widget-box" id="heatmap-widget-container" style="min-height: auto; padding: 24px;">
+          <div style="border-bottom: 1px solid var(--border-subtle); padding-bottom: 16px; margin-bottom: 16px;">
+            <h3 class="gold-gradient-text" style="font-size: 20px; font-weight: 800; margin: 0;">📅 Clan Activity Heatmap</h3>
+            <span style="font-size: 12px; color: var(--text-muted);">Visualized member hourly contribution index</span>
+          </div>
+          <div id="activity-heatmap-wrapper"></div>
         </div>
       </div>
     </section>
@@ -206,9 +215,10 @@
             <button class="search-tab-btn" data-search-mode="name" onclick="toggleClanSearchMode('name')">By Name</button>
           </div>
           <form id="clan-search-form" class="search-form">
-            <div class="input-group">
+            <div class="input-group" style="position: relative;">
               <label for="clan-tag-input">Clan Tag</label>
-              <input type="text" id="clan-tag-input" placeholder="e.g. #2PP2PP2P" required>
+              <input type="text" id="clan-tag-input" placeholder="e.g. #2PP2PP2P" required autocomplete="off">
+              <div class="history-dropdown-panel" id="clan-tag-input-dropdown"></div>
             </div>
             <button type="submit" class="primary-btn">
               <i class="fas fa-search" style="margin-right: 8px;"></i> Search Clan
@@ -246,9 +256,10 @@
         <div class="sidebar-card">
           <h3>Player Profiler</h3>
           <form id="player-search-form" class="search-form">
-            <div class="input-group">
+            <div class="input-group" style="position: relative;">
               <label for="player-tag-input">Player Tag</label>
-              <input type="text" id="player-tag-input" placeholder="e.g. #Y2CU0P8P" required>
+              <input type="text" id="player-tag-input" placeholder="e.g. #Y2CU0P8P" required autocomplete="off">
+              <div class="history-dropdown-panel" id="player-tag-input-dropdown"></div>
             </div>
             <button type="submit" class="primary-btn">
               <i class="fas fa-search" style="margin-right: 8px;"></i> Search Player
@@ -267,9 +278,10 @@
         <div class="sidebar-card">
           <h3>Track Clan War</h3>
           <form id="war-search-form" class="search-form">
-            <div class="input-group">
+            <div class="input-group" style="position: relative;">
               <label for="war-clan-tag-input">Clan Tag</label>
-              <input type="text" id="war-clan-tag-input" placeholder="e.g. #2PP2PP2P" required>
+              <input type="text" id="war-clan-tag-input" placeholder="e.g. #2PP2PP2P" required autocomplete="off">
+              <div class="history-dropdown-panel" id="war-clan-tag-input-dropdown"></div>
             </div>
             <button type="submit" class="primary-btn">
               <i class="fas fa-search" style="margin-right: 8px;"></i> Track War
@@ -283,6 +295,7 @@
             <button class="sub-nav-btn active" data-subtab="active">Active War</button>
             <button class="sub-nav-btn" data-subtab="cwl">War League (CWL)</button>
             <button class="sub-nav-btn" data-subtab="history">War History</button>
+            <button class="sub-nav-btn" data-subtab="strategy">War Room Planner</button>
           </div>
 
           <!-- SUB-VIEW 4A: Active War -->
@@ -330,6 +343,50 @@
               <!-- Populated by app.js -->
             </div>
           </div>
+
+          <!-- SUB-VIEW 4D: War Room Strategy Planner -->
+          <div id="war-subview-strategy" class="war-subview" style="display: none; flex-direction: column; gap: 24px; width: 100%;">
+            <div class="results-card" style="min-height: auto;">
+              <div class="flex-between border-bottom-subtle pb-12">
+                <h3 class="gold-gradient-text" style="font-size: 20px; font-weight: 800; margin: 0;">⚔️ War Room Target Board</h3>
+                <span class="text-xs text-muted">Plan attack strategy and estimate win odds</span>
+              </div>
+              <div class="war-room-panel">
+                <!-- Strategy notes & assignments -->
+                <div class="strategy-board">
+                  <h4 style="font-size: 15px; color: var(--clash-gold); margin-bottom: 12px;"><i class="fas fa-edit"></i> Leader Tactical Assignments</h4>
+                  <div class="input-group">
+                    <label>Target #1 Strategy Note</label>
+                    <textarea class="tactical-note-input" id="strategy-target-1" placeholder="e.g. Queen Charge Lalo from 3 o'clock. Clear CC first..."></textarea>
+                  </div>
+                  <div class="input-group" style="margin-top:16px;">
+                    <label>Target #2 Strategy Note</label>
+                    <textarea class="tactical-note-input" id="strategy-target-2" placeholder="e.g. Hybrid attack. Lure CC with hog. King/Siegbarr at 9 o'clock..."></textarea>
+                  </div>
+                  <button class="primary-btn" onclick="saveTacticalNotes()" style="width: 100%; font-size: 14px; padding: 10px; margin-top: 16px;">Save Strategic Plan</button>
+                </div>
+                <!-- Interactive odds simulator -->
+                <div class="strategy-board" style="display: flex; flex-direction: column; gap: 16px;">
+                  <h4 style="font-size: 15px; color: var(--clash-gold);"><i class="fas fa-calculator"></i> War Win Probability Calculator</h4>
+                  <div class="input-group">
+                    <label>Assigned Clan Attacking Strength</label>
+                    <input type="range" id="sim-attack-strength" min="50" max="100" value="85" style="accent-color: var(--clash-gold);">
+                    <span id="sim-attack-val" style="font-size: 12px; color: var(--text-muted); text-align: right;">85% effectiveness</span>
+                  </div>
+                  <div class="input-group">
+                    <label>Opponent Base Defensive Level</label>
+                    <input type="range" id="sim-defense-strength" min="50" max="100" value="75" style="accent-color: var(--clash-elixir);">
+                    <span id="sim-defense-val" style="font-size: 12px; color: var(--text-muted); text-align: right;">75% upgrade status</span>
+                  </div>
+                  <div class="card-item" style="text-align: center; background: rgba(255,255,255,0.02); padding: 16px; border-radius: 10px;">
+                    <div style="font-size: 12px; color: var(--text-muted); text-transform: uppercase;">Simulated Win Odds</div>
+                    <div id="sim-win-probability" style="font-size: 40px; font-weight: 800; color: #4adb86; margin-top: 8px; text-shadow: 0 0 15px rgba(74,219,134,0.3);">--</div>
+                    <p id="sim-verdict" style="font-size: 13px; color: var(--text-muted); margin-top: 8px; line-height: 1.5;"></p>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
         </div>
       </div>
     </section>
@@ -368,9 +425,10 @@
         <div class="sidebar-card">
           <h3>Capital Lookup</h3>
           <form id="capital-search-form" class="search-form">
-            <div class="input-group">
+            <div class="input-group" style="position: relative;">
               <label for="capital-clan-tag-input">Clan Tag</label>
-              <input type="text" id="capital-clan-tag-input" placeholder="e.g. #2PP2PP2P" required>
+              <input type="text" id="capital-clan-tag-input" placeholder="e.g. #2PP2PP2P" required autocomplete="off">
+              <div class="history-dropdown-panel" id="capital-clan-tag-input-dropdown"></div>
             </div>
             <button type="submit" class="primary-btn">
               <i class="fas fa-search" style="margin-right: 8px;"></i> Load Capital
@@ -428,6 +486,35 @@
         </div>
         <div class="results-card" id="layout-gallery-container">
           <!-- Populated by app.js -->
+        </div>
+
+        <!-- Defensive Range Canvas Workspace -->
+        <div class="base-canvas-workspace" id="base-canvas-card">
+          <div class="flex-between border-bottom-subtle pb-12">
+            <h3 class="gold-gradient-text" style="font-size: 20px; font-weight: 800; margin: 0;">🛡️ Tactical Defense Coverage Simulator</h3>
+            <span class="text-xs text-muted">Test deadzones and overlap ranges of core defenses</span>
+          </div>
+          
+          <div class="canvas-toolbar">
+            <div class="defense-palette">
+              <button class="palette-btn selected" data-defense="eagle" data-range="120"><i class="fas fa-shield-halved"></i> Eagle Artillery</button>
+              <button class="palette-btn" data-defense="scatter" data-range="80"><i class="fas fa-crosshairs"></i> Scattershot</button>
+              <button class="palette-btn" data-defense="monolith" data-range="60"><i class="fas fa-skull"></i> Monolith</button>
+              <button class="palette-btn" data-defense="inferno" data-range="50"><i class="fas fa-fire-burner"></i> Inferno Tower</button>
+              <button class="palette-btn" data-defense="townhall" data-range="45"><i class="fas fa-castle"></i> Town Hall Weapon</button>
+            </div>
+            <button class="primary-btn" onclick="clearBaseCanvas()" style="padding: 8px 16px; font-size: 13px; margin-left: auto; background: var(--clash-elixir-gradient); box-shadow: none;">Reset Grid</button>
+          </div>
+
+          <div class="canvas-grid-container" id="base-grid-container">
+            <div class="canvas-grid-lines"></div>
+            <!-- Placed elements dynamically render here -->
+          </div>
+          
+          <div class="recommendation-card" style="margin-top: 0; background: rgba(255,255,255,0.02); border-color: var(--border-subtle);">
+            <i class="fas fa-circle-info" style="color: var(--clash-gold); margin-right: 6px;"></i>
+            <strong>Tactical Hint:</strong> Click on the canvas grid above to place the selected defense. Hover over defenses to display their real-time range circles. Click the small "x" on a placed defense to remove it.
+          </div>
         </div>
       </div>
     </section>
@@ -517,7 +604,27 @@
         <span style="font-size: 11px; color: var(--text-muted); margin-top: 4px;">Due to Clash of Clans API CORS security blocks, a proxy is required for direct browser requests.</span>
       </div>
 
-      <button class="primary-btn" id="save-settings-btn">Save Configurations</button>
+      <div class="input-group" style="margin-top: 8px; border-top: 1px solid var(--border-subtle); padding-top: 16px;">
+        <label style="margin-bottom: 12px; color: var(--clash-gold);">🎛️ Command Center Widgets Toggle</label>
+        <div class="widget-toggle-row">
+          <span>Overview Distribution Chart</span>
+          <input type="checkbox" id="widget-toggle-chart" class="widget-checkbox" checked>
+        </div>
+        <div class="widget-toggle-row">
+          <span>Gold Pass Progress Timeline</span>
+          <input type="checkbox" id="widget-toggle-goldpass" class="widget-checkbox" checked>
+        </div>
+        <div class="widget-toggle-row">
+          <span>Activity Heatmap Calendar</span>
+          <input type="checkbox" id="widget-toggle-heatmap" class="widget-checkbox" checked>
+        </div>
+        <div class="widget-toggle-row">
+          <span>Bookmarks Panel (Left Sidebar)</span>
+          <input type="checkbox" id="widget-toggle-bookmarks" class="widget-checkbox" checked>
+        </div>
+      </div>
+
+      <button class="primary-btn" id="save-settings-btn" style="margin-top: 8px;">Save Configurations</button>
     </div>
   </dialog>
 

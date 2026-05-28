@@ -2657,3 +2657,517 @@ dialog.drawer[open] {
   color: #000;
   font-weight: 700;
 }
+
+/* ====================================================== */
+/*          ⚔️ PREMIUM ENHANCEMENT STYLES                  */
+/* ====================================================== */
+
+/* 🛡️ Module 2: Interactive Defensive Range Canvas Styles */
+.base-canvas-workspace {
+  background: radial-gradient(circle, #10141b 0%, #080a0e 100%);
+  border: 1px solid var(--border-subtle);
+  border-radius: 16px;
+  padding: 24px;
+  box-shadow: var(--card-shadow);
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+  margin-top: 24px;
+}
+
+.canvas-toolbar {
+  display: flex;
+  gap: 12px;
+  flex-wrap: wrap;
+  align-items: center;
+  border-bottom: 1px solid var(--border-subtle);
+  padding-bottom: 16px;
+}
+
+.defense-palette {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.palette-btn {
+  background: var(--bg-stone-medium);
+  border: 1px solid var(--border-subtle);
+  color: var(--text-main);
+  padding: 8px 14px;
+  border-radius: 8px;
+  font-size: 13px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  transition: var(--transition-smooth);
+}
+
+.palette-btn:hover, .palette-btn.selected {
+  border-color: var(--clash-gold);
+  background: rgba(245, 166, 35, 0.1);
+  color: var(--clash-gold);
+}
+
+.canvas-grid-container {
+  position: relative;
+  width: 100%;
+  aspect-ratio: 16 / 9;
+  max-height: 400px;
+  background: rgba(255, 255, 255, 0.01);
+  border: 1px dashed rgba(255, 255, 255, 0.15);
+  border-radius: 12px;
+  overflow: hidden;
+  cursor: crosshair;
+}
+
+.canvas-grid-lines {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  background-image: 
+    linear-gradient(rgba(255,255,255,0.03) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(255,255,255,0.03) 1px, transparent 1px);
+  background-size: 40px 40px;
+}
+
+.placed-structure {
+  position: absolute;
+  width: 32px;
+  height: 32px;
+  transform: translate(-50%, -50%);
+  background: var(--clash-gold-gradient);
+  border-radius: 6px;
+  box-shadow: 0 0 12px var(--clash-gold-glow);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #000;
+  font-size: 14px;
+  font-weight: 800;
+  cursor: grab;
+  z-index: 5;
+  transition: transform 0.15s ease-out;
+}
+
+.placed-structure:active {
+  cursor: grabbing;
+  transform: translate(-50%, -50%) scale(1.1);
+}
+
+.placed-structure .structure-delete {
+  position: absolute;
+  top: -8px;
+  right: -8px;
+  background: var(--clash-elixir);
+  color: #fff;
+  border: none;
+  border-radius: 50%;
+  width: 16px;
+  height: 16px;
+  font-size: 9px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  opacity: 0;
+  transition: var(--transition-smooth);
+}
+
+.placed-structure:hover .structure-delete {
+  opacity: 1;
+}
+
+.range-circle {
+  position: absolute;
+  transform: translate(-50%, -50%);
+  border-radius: 50%;
+  border: 1.5px dashed rgba(245, 166, 35, 0.4);
+  background: rgba(245, 166, 35, 0.05);
+  pointer-events: none;
+  z-index: 2;
+  transition: opacity 0.3s ease;
+  animation: radarPulse 4s infinite linear;
+}
+
+.range-circle.scattershot {
+  border-color: rgba(236, 59, 131, 0.4);
+  background: rgba(236, 59, 131, 0.03);
+}
+
+.range-circle.monolith {
+  border-color: rgba(139, 68, 253, 0.4);
+  background: rgba(139, 68, 253, 0.03);
+}
+
+@keyframes radarPulse {
+  0% { box-shadow: inset 0 0 10px rgba(245, 166, 35, 0.05); }
+  50% { box-shadow: inset 0 0 25px rgba(245, 166, 35, 0.15); }
+  100% { box-shadow: inset 0 0 10px rgba(245, 166, 35, 0.05); }
+}
+
+/* ⚔️ Module 1: War Room Strategy Dashboard Styles */
+.war-room-panel {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 24px;
+  margin-top: 24px;
+}
+
+@media (max-width: 900px) {
+  .war-room-panel {
+    grid-template-columns: 1fr;
+  }
+}
+
+.strategy-board {
+  background: var(--bg-stone-dark);
+  border: 1px solid var(--border-subtle);
+  border-radius: 14px;
+  padding: 20px;
+}
+
+.strategy-row-item {
+  background: var(--bg-stone-medium);
+  border: 1px solid var(--border-subtle);
+  border-radius: 8px;
+  padding: 12px 16px;
+  margin-top: 10px;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  transition: var(--transition-smooth);
+}
+
+.strategy-row-item:hover {
+  border-color: rgba(255, 255, 255, 0.12);
+  background: var(--bg-stone-light);
+}
+
+.tactical-note-input {
+  background: var(--bg-stone-medium);
+  border: 1px solid var(--border-subtle);
+  border-radius: 8px;
+  color: var(--text-main);
+  padding: 10px 14px;
+  font-size: 13px;
+  width: 100%;
+  margin-top: 10px;
+  resize: none;
+  min-height: 80px;
+  outline: none;
+}
+
+.tactical-note-input:focus {
+  border-color: var(--clash-gold);
+}
+
+/* 🎟️ Module 3: Gold Pass Milestone Progress Tracker */
+.milestone-container {
+  position: relative;
+  display: flex;
+  align-items: center;
+  width: 100%;
+  padding: 40px 10px;
+  overflow-x: auto;
+  scrollbar-width: none;
+  gap: 60px;
+}
+
+.milestone-container::-webkit-scrollbar {
+  display: none;
+}
+
+.milestone-track-line {
+  position: absolute;
+  top: 50%;
+  left: 0;
+  height: 4px;
+  background: var(--bg-stone-light);
+  z-index: 1;
+  transform: translateY(-50%);
+  width: 100%;
+}
+
+.milestone-track-fill {
+  position: absolute;
+  top: 50%;
+  left: 0;
+  height: 4px;
+  background: var(--clash-gold-gradient);
+  z-index: 2;
+  transform: translateY(-50%);
+  transition: width 1s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.milestone-node {
+  position: relative;
+  width: 48px;
+  height: 48px;
+  border-radius: 50%;
+  background: var(--bg-stone-medium);
+  border: 3px solid var(--border-subtle);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  z-index: 3;
+  transition: var(--transition-smooth);
+}
+
+.milestone-node.completed {
+  background: var(--clash-gold-gradient);
+  border-color: #ffe066;
+  box-shadow: 0 0 15px var(--clash-gold-glow);
+}
+
+.milestone-node:hover {
+  transform: scale(1.15);
+}
+
+.milestone-node-label {
+  position: absolute;
+  top: 58px;
+  font-size: 11px;
+  color: var(--text-muted);
+  white-space: nowrap;
+  font-weight: 600;
+  text-align: center;
+}
+
+.milestone-node.completed .milestone-node-label {
+  color: var(--clash-gold);
+}
+
+/* 🔍 Module 4: Persistent Search History & Favorites Sidebar Extensions */
+.history-dropdown-panel {
+  position: absolute;
+  top: 100%;
+  left: 0;
+  width: 100%;
+  background: var(--bg-stone-dark);
+  border: 1px solid var(--border-subtle);
+  border-radius: 8px;
+  margin-top: 6px;
+  box-shadow: var(--card-shadow);
+  display: none;
+  z-index: 50;
+  overflow: hidden;
+}
+
+.history-dropdown-panel.visible {
+  display: block;
+  animation: fadeIn 0.2s ease-out;
+}
+
+.history-dropdown-header {
+  padding: 10px 14px;
+  border-bottom: 1px solid var(--border-subtle);
+  font-size: 11px;
+  color: var(--text-muted);
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.history-dropdown-item {
+  padding: 10px 14px;
+  font-size: 13px;
+  cursor: pointer;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  transition: var(--transition-smooth);
+}
+
+.history-dropdown-item:hover {
+  background: rgba(255, 255, 255, 0.03);
+}
+
+.history-item-tag {
+  color: var(--clash-gold);
+  font-weight: bold;
+  font-size: 11px;
+}
+
+.clear-history-btn {
+  background: none;
+  border: none;
+  color: var(--clash-elixir);
+  cursor: pointer;
+  font-size: 10px;
+  font-weight: bold;
+}
+
+/* ====================================================== */
+/*          ⚔️ ADVANCED INTERACTIVE STYLES                 */
+/* ====================================================== */
+
+/* 🗺️ Module 1: Graphical Battle Map & Roster Nodes Styles */
+.war-battle-map {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 32px;
+  background: var(--bg-stone-dark);
+  border: 1px solid var(--border-subtle);
+  border-radius: 16px;
+  padding: 24px;
+  margin-top: 24px;
+}
+
+@media (max-width: 768px) {
+  .war-battle-map {
+    grid-template-columns: 1fr;
+    gap: 24px;
+  }
+}
+
+.battle-map-team {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.battle-map-header {
+  font-size: 14px;
+  font-weight: 800;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  padding-bottom: 8px;
+  border-bottom: 2px solid var(--border-subtle);
+}
+
+.battle-map-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(64px, 1fr));
+  gap: 10px;
+}
+
+.base-node {
+  background: var(--bg-stone-medium);
+  border: 1px solid var(--border-subtle);
+  border-radius: 10px;
+  height: 52px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  font-weight: 800;
+  cursor: pointer;
+  transition: var(--transition-smooth);
+  position: relative;
+}
+
+.base-node:hover {
+  transform: translateY(-2px);
+  border-color: rgba(255, 255, 255, 0.2);
+}
+
+.base-node.cleared {
+  background: rgba(74, 219, 134, 0.15);
+  border-color: rgba(74, 219, 134, 0.4);
+  color: #4adb86;
+}
+
+.base-node.damaged {
+  background: rgba(245, 166, 35, 0.15);
+  border-color: rgba(245, 166, 35, 0.4);
+  color: var(--clash-gold);
+}
+
+.base-node.untouched {
+  background: rgba(236, 59, 131, 0.1);
+  border-color: rgba(236, 59, 131, 0.3);
+  color: var(--clash-elixir);
+}
+
+.base-node-stars {
+  font-size: 9px;
+  margin-top: 2px;
+}
+
+/* Slide-down target detail card */
+.target-detail-card {
+  background: linear-gradient(135deg, rgba(245, 166, 35, 0.05) 0%, rgba(18, 21, 25, 0.95) 100%);
+  border: 1px solid rgba(245, 166, 35, 0.25);
+  border-radius: 12px;
+  padding: 16px;
+  margin-top: 16px;
+  animation: slideDown 0.3s ease-out;
+}
+
+@keyframes slideDown {
+  from { opacity: 0; transform: translateY(-10px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+/* 🛡️ Module 2: Hero Gear Synergy Recommendations Styles */
+.synergy-recommend-card {
+  background: linear-gradient(135deg, rgba(139, 68, 253, 0.1) 0%, rgba(26, 30, 36, 0.9) 100%);
+  border: 1px solid rgba(139, 68, 253, 0.3);
+  border-radius: 14px;
+  padding: 20px;
+  margin-top: 24px;
+}
+
+.synergy-gear-tag {
+  background: rgba(139, 68, 253, 0.15);
+  border: 1px solid rgba(139, 68, 253, 0.3);
+  color: var(--clash-dark-elixir);
+  padding: 4px 10px;
+  border-radius: 6px;
+  font-size: 11px;
+  font-weight: 700;
+  display: inline-block;
+}
+
+.synergy-gear-tag.active-set {
+  background: rgba(245, 166, 35, 0.15);
+  border-color: rgba(245, 166, 35, 0.3);
+  color: var(--clash-gold);
+}
+
+/* 📈 Module 3: Comparative Charts containers */
+.charts-card-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 24px;
+  margin-top: 24px;
+}
+
+@media (max-width: 1024px) {
+  .charts-card-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+/* 🎛️ Module 4: Widget transitions & setting checkboxes */
+.widget-toggle-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 8px 0;
+  border-bottom: 1px solid var(--border-subtle);
+}
+
+.widget-checkbox {
+  width: 18px;
+  height: 18px;
+  accent-color: var(--clash-gold);
+  cursor: pointer;
+}
+
+.widget-box {
+  transition: opacity 0.4s cubic-bezier(0.4, 0, 0.2, 1), transform 0.4s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.widget-box.hidden {
+  display: none !important;
+  opacity: 0;
+  transform: scale(0.95);
+}
+
+
