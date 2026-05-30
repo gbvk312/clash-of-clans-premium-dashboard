@@ -3622,3 +3622,181 @@ dialog.drawer[open] {
   border-radius: 12px;
   min-height: 100px;
 }
+
+/* ====================================================== */
+/*          ⚔️ SIX PREMIUM UPGRADES STYLINGS              */
+/* ====================================================== */
+
+/* 1. Hero Sandbox Comparison UI */
+.sandbox-comparison-card {
+  background: linear-gradient(135deg, rgba(255, 255, 255, 0.02) 0%, rgba(18, 22, 28, 0.95) 100%);
+  border: 1px solid var(--border-subtle);
+  border-radius: 12px;
+  padding: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.sandbox-comparison-bar-container {
+  height: 6px;
+  background: var(--bg-stone-medium);
+  border-radius: 3px;
+  overflow: hidden;
+  margin-top: 4px;
+  display: flex;
+}
+
+.sandbox-comparison-bar {
+  height: 100%;
+  border-radius: 3px;
+  transition: width 0.8s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.loadout-a-fill {
+  background: var(--clash-gold-gradient);
+}
+
+.loadout-b-fill {
+  background: var(--clash-elixir-gradient);
+}
+
+/* 2. War Tactics Map Placed Assets */
+.tactic-node {
+  position: absolute;
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  background: var(--bg-stone-medium);
+  border: 2px solid var(--clash-gold);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 13px;
+  font-weight: bold;
+  color: #fff;
+  cursor: grab;
+  user-select: none;
+  z-index: 10;
+  box-shadow: 0 0 10px rgba(245, 166, 35, 0.3);
+}
+
+.tactic-node.active-drag {
+  cursor: grabbing;
+  opacity: 0.8;
+}
+
+.tactic-node .remove-tactic-btn {
+  position: absolute;
+  top: -6px;
+  right: -6px;
+  width: 14px;
+  height: 14px;
+  background: #ff3b80;
+  color: #fff;
+  font-size: 8px;
+  border-radius: 50%;
+  border: none;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  pointer-events: auto;
+}
+
+.spell-ring-overlay {
+  position: absolute;
+  border-radius: 50%;
+  border: 2px dashed rgba(255,255,255,0.4);
+  pointer-events: none;
+  z-index: 8;
+  transform: translate(-50%, -50%);
+  animation: pulse-ring 2s infinite ease-in-out;
+}
+
+@keyframes pulse-ring {
+  0% { transform: translate(-50%, -50%) scale(0.98); opacity: 0.7; }
+  50% { transform: translate(-50%, -50%) scale(1.02); opacity: 0.9; }
+  100% { transform: translate(-50%, -50%) scale(0.98); opacity: 0.7; }
+}
+
+/* 3. Clan Roster Intel Badges */
+.roster-mvp-badge {
+  background: rgba(74, 219, 134, 0.15);
+  color: #4adb86;
+  border: 1px solid rgba(74, 219, 134, 0.3);
+  font-size: 10px;
+  font-weight: 800;
+  padding: 2px 6px;
+  border-radius: 6px;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.roster-inactive-badge {
+  background: rgba(236, 59, 131, 0.15);
+  color: var(--clash-elixir);
+  border: 1px solid rgba(236, 59, 131, 0.3);
+  font-size: 10px;
+  font-weight: 800;
+  padding: 2px 6px;
+  border-radius: 6px;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+/* 4. CWL Standings Simulator */
+.cwl-sim-input {
+  width: 48px;
+  background: var(--bg-stone-medium);
+  border: 1px solid var(--border-subtle);
+  border-radius: 6px;
+  color: var(--text-main);
+  text-align: center;
+  padding: 4px 6px;
+  font-size: 12px;
+  outline: none;
+  font-weight: bold;
+}
+
+.cwl-sim-input:focus {
+  border-color: var(--clash-gold);
+}
+
+.cwl-sim-row {
+  transition: transform 0.4s ease-out, background 0.4s ease-out;
+}
+
+.cwl-sim-row.promotion-zone {
+  border-left: 4px solid #4adb86;
+}
+
+.cwl-sim-row.demotion-zone {
+  border-left: 4px solid #ff3b80;
+}
+
+/* 5. Telemetry Inspector Console */
+.telemetry-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  background: rgba(0,0,0,0.15);
+  border: 1px solid var(--border-subtle);
+  border-radius: 6px;
+  padding: 8px 12px;
+}
+
+.telemetry-latency-tag {
+  font-family: monospace;
+  font-weight: bold;
+  padding: 2px 6px;
+  border-radius: 4px;
+  font-size: 11px;
+}
+
+.telemetry-latency-tag.good { background: rgba(74, 219, 134, 0.15); color: #4adb86; }
+.telemetry-latency-tag.average { background: rgba(245, 166, 35, 0.15); color: var(--clash-gold); }
+.telemetry-latency-tag.slow { background: rgba(236, 59, 131, 0.15); color: var(--clash-elixir); }
+

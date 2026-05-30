@@ -1073,13 +1073,7 @@ async function fetchCocData(endpoint) {
         if (window.MOCK_DATA.capitalRaids && window.MOCK_DATA.capitalRaids[tag]) {
           result = structuredClone(window.MOCK_DATA.capitalRaids[tag]);
         } else if (window.MOCK_CAPITAL_RAIDS && window.MOCK_CAPITAL_RAIDS[tag]) {
-          result = structuredClone(window.MOCK_CAPITAL_RAIDS[tag]);
-        } else {
-          result = structuredClone(Object.values(window.MOCK_CAPITAL_RAIDS)[0]);
-        }
-      }
-      // Requesting clan itself
-      else {
+      if (parts.length === 3) {
         if (window.MOCK_DATA.clans && window.MOCK_DATA.clans[tag]) {
           result = structuredClone(window.MOCK_DATA.clans[tag]);
         } else if (window.MOCK_CLANS && window.MOCK_CLANS[tag]) {
@@ -1091,6 +1085,18 @@ async function fetchCocData(endpoint) {
           copy.name = `Clan ${tag.replace('#', '')}`;
           result = copy;
         }
+      } else if (parts[3] === 'currentwar') {
+        const data = window.MOCK_DATA.wars[tag] || window.MOCK_WARS[tag] || window.MOCK_WARS["#2PP2PP2P"];
+        result = structuredClone(data);
+      } else if (parts[3] === 'warleaguequeue') {
+        const data = window.MOCK_DATA.cwl[tag] || window.MOCK_CWL[tag] || window.MOCK_CWL["#2PP2PP2P"];
+        result = structuredClone(data);
+      } else if (parts[3] === 'warlog') {
+        const data = window.MOCK_DATA.warLog[tag] || window.MOCK_WAR_LOG[tag] || window.MOCK_WAR_LOG["#2PP2PP2P"];
+        result = structuredClone(data);
+      } else if (parts[3] === 'capitalraidseasons') {
+        const data = window.MOCK_DATA.capitalRaids[tag] || window.MOCK_CAPITAL_RAIDS[tag] || window.MOCK_CAPITAL_RAIDS["#2PP2PP2P"];
+        result = structuredClone(data);
       }
     }
     // Handle Player profiling routing
@@ -1111,6 +1117,7 @@ async function fetchCocData(endpoint) {
     
     if (result) {
       updatePayloadInspector(endpoint, result);
+      logTelemetryQuery(endpoint, performance.now() - startTime, false);
       return result;
     }
 
@@ -1147,6 +1154,18 @@ async function fetchCocData(endpoint) {
   const json = await response.json();
   cocCache.set(endpoint, json);
   updatePayloadInspector(endpoint, json);
+  
+  // Track telemetry variables
+  if (response.headers.get('x-ratelimit-remaining')) {
+    state.telemetryRateRemaining = parseInt(response.headers.get('x-ratelimit-remaining'));
+    state.telemetryRateLimit = parseInt(response.headers.get('x-ratelimit-limit') || '30');
+  } else {
+    // If local proxy mock is active, count internally
+    state.telemetryRateRemaining = Math.max(0, 30 - cocCache.size);
+    state.telemetryRateLimit = 30;
+  }
+  
+  logTelemetryQuery(endpoint, performance.now() - startTime, false);
   return json;
 }
 
@@ -4973,6 +4992,8 @@ document.addEventListener('DOMContentLoaded', () => {
         const tab = item.getAttribute('data-tab');
         if (tab === 'legends') {
           setTimeout(initLegendSimulator, 50);
+        } else if (tab === 'hero-sandbox') {
+          setTimeout(initHeroSandboxTab, 50);
         }
       });
     });
@@ -4988,6 +5009,7 @@ document.addEventListener('DOMContentLoaded', () => {
           setTimeout(() => {
             renderAICoachBoard();
             renderWarBattleSimulator();
+            initTacticsPlannerCanvas();
           }, 50);
         }
       });
@@ -4995,6 +5017,7 @@ document.addEventListener('DOMContentLoaded', () => {
   }
 });
 
+// Global bindings
 window.simulateAllLegendRuns = simulateAllLegendRuns;
 window.clearLegendRuns = clearLegendRuns;
 window.renderAICoachBoard = renderAICoachBoard;
@@ -5006,3 +5029,1076 @@ window.adjustForgeLevel = adjustForgeLevel;
 window.triggerWebhookTest = triggerWebhookTest;
 window.simulateWebhookEmbed = simulateWebhookEmbed;
 window.renderProgressionAudit = renderProgressionAudit;
+
+// ============================================================================
+// 🌟 DEDICATED HERO SANDBOX VIEW (MODULE 1)
+// ============================================================================
+function initHeroSandboxTab() {
+  if (!state.currentForgePlayer) {
+    state.currentForgePlayer = Object.values(window.MOCK_PLAYERS)[0];
+  }
+  renderHeroSandbox();
+  renderSandboxComparison();
+}
+
+function renderHeroSandbox() {
+  const container = document.getElementById('tab-sandbox-equipment-container');
+  const panel = document.getElementById('tab-sandbox-control-panel');
+  if (!container || !panel) return;
+
+  const player = state.currentForgePlayer;
+  const heroesList = ["Barbarian King", "Archer Queen", "Grand Warden", "Royal Champion"];
+  let allEquipment = [...(player.heroEquipment || [])];
+
+  if (!allEquipment.some(eq => eq.heroName === "Royal Champion")) {
+    allEquipment = allEquipment.concat(DEFAULT_RC_GEARS);
+  }
+
+  const heroGears = allEquipment.filter(eq => eq.heroName === state.forgeSelectedHero);
+
+  const firstGear = heroGears[0] || null;
+  const secondGear = heroGears[1] || null;
+  
+  if (!state.forgeSlot1Gear || state.forgeSlot1Gear.heroName !== state.forgeSelectedHero) {
+    state.forgeSlot1Gear = firstGear;
+    state.forgeSlot1SimLevel = firstGear ? firstGear.level : 1;
+  }
+  if (!state.forgeSlot2Gear || state.forgeSlot2Gear.heroName !== state.forgeSelectedHero) {
+    state.forgeSlot2Gear = secondGear;
+    state.forgeSlot2SimLevel = secondGear ? secondGear.level : 1;
+  }
+
+  // Render hero selection & gear list
+  container.innerHTML = `
+    <!-- Hero Selection Tabs -->
+    <div style="display: flex; gap: 8px; flex-wrap: wrap; border-bottom: 1px solid var(--border-subtle); padding-bottom: 12px; width: 100%;">
+      ${heroesList.map(hero => `
+        <button class="primary-btn" onclick="selectSandboxHero('${escapeHtml(hero)}')" style="padding: 8px 16px; font-size: 12px; font-weight: bold; background: ${state.forgeSelectedHero === hero ? 'var(--clash-gold-gradient)' : 'rgba(255,255,255,0.03)'}; color: ${state.forgeSelectedHero === hero ? '#000' : 'var(--text-muted)'}; border-color: ${state.forgeSelectedHero === hero ? '#ffe066' : 'var(--border-subtle)'}; box-shadow: none;">
+          ${escapeHtml(hero)}
+        </button>
+      `).join('')}
+    </div>
+
+    <!-- Active Slotted Gears -->
+    <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-top: 12px;">
+      <div class="forge-equipment-card ${state.activeForgeSlot === 1 ? 'selected' : ''}" onclick="toggleActiveSandboxSlot(1)" style="border-style: ${state.activeForgeSlot === 1 ? 'solid' : 'dashed'}; border-color: ${state.activeForgeSlot === 1 ? 'var(--clash-gold)' : 'var(--border-subtle)'}; min-height: 90px; position: relative;">
+        <span style="font-size: 9px; text-transform: uppercase; color: var(--text-muted); position: absolute; top: 6px; left: 8px;">Active Slot 1</span>
+        ${state.forgeSlot1Gear ? `
+          <div class="forge-level-pill" style="top: 6px; right: 8px;">LVL ${state.forgeSlot1SimLevel}</div>
+          <div style="font-size: 24px; margin-top: 18px;">🗡️</div>
+          <div style="font-size: 13px; font-weight: bold; margin-top: 6px;">${escapeHtml(state.forgeSlot1Gear.name)}</div>
+        ` : `
+          <div style="color: var(--text-muted); font-size: 12px; margin-top: 30px;">Empty Slot</div>
+        `}
+      </div>
+      <div class="forge-equipment-card ${state.activeForgeSlot === 2 ? 'selected' : ''}" onclick="toggleActiveSandboxSlot(2)" style="border-style: ${state.activeForgeSlot === 2 ? 'solid' : 'dashed'}; border-color: ${state.activeForgeSlot === 2 ? 'var(--clash-gold)' : 'var(--border-subtle)'}; min-height: 90px; position: relative;">
+        <span style="font-size: 9px; text-transform: uppercase; color: var(--text-muted); position: absolute; top: 6px; left: 8px;">Active Slot 2</span>
+        ${state.forgeSlot2Gear ? `
+          <div class="forge-level-pill" style="top: 6px; right: 8px;">LVL ${state.forgeSlot2SimLevel}</div>
+          <div style="font-size: 24px; margin-top: 18px;">⚡</div>
+          <div style="font-size: 13px; font-weight: bold; margin-top: 6px;">${escapeHtml(state.forgeSlot2Gear.name)}</div>
+        ` : `
+          <div style="color: var(--text-muted); font-size: 12px; margin-top: 30px;">Empty Slot</div>
+        `}
+      </div>
+    </div>
+
+    <!-- Inventory Palette -->
+    <div style="margin-top: 16px; width: 100%;">
+      <h5 style="font-size: 11px; color: var(--text-muted); text-transform: uppercase; margin-bottom: 8px; font-weight: 700; letter-spacing: 0.5px;">Slotted Gear Inventory</h5>
+      <div class="forge-equipment-grid" style="grid-template-columns: repeat(auto-fill, minmax(110px, 1fr)); max-height: 250px;">
+        ${heroGears.map(eq => {
+          const isSlotted = (state.forgeSlot1Gear && state.forgeSlot1Gear.name === eq.name) || (state.forgeSlot2Gear && state.forgeSlot2Gear.name === eq.name);
+          return `
+            <div class="forge-equipment-card" onclick="slotSandboxGear('${escapeHtml(eq.name)}')" style="opacity: ${isSlotted ? 0.4 : 1}; pointer-events: ${isSlotted ? 'none' : 'auto'}; border-color: var(--border-subtle); position: relative;">
+              <div class="forge-level-pill">LVL ${eq.level}</div>
+              <div style="font-size: 28px; margin-bottom: 6px; margin-top: 6px;">🛡️</div>
+              <div style="font-size: 11px; font-weight: 700; text-overflow: ellipsis; overflow: hidden; white-space: nowrap; width: 100%;">${escapeHtml(eq.name)}</div>
+            </div>
+          `;
+        }).join('')}
+      </div>
+    </div>
+  `;
+
+  // Render upgrade costs controls panel
+  let totalShiny = 0;
+  let totalGlowy = 0;
+  let totalStarry = 0;
+  let totalDpsGained = 0;
+  let totalHpGained = 0;
+
+  const calculateGearOres = (gear, targetLvl) => {
+    if (!gear) return { s: 0, g: 0, st: 0 };
+    const isEpic = gear.name === "Giant Gauntlet" || gear.name === "Frozen Arrow";
+    const diff = targetLvl - gear.level;
+    if (diff <= 0) return { s: 0, g: 0, st: 0 };
+    const baseShiny = isEpic ? 240 : 120;
+    const baseGlowy = isEpic ? 30 : 15;
+    const baseStarry = isEpic ? 6 : 0;
+    return { s: diff * baseShiny, g: diff * baseGlowy, st: diff * baseStarry };
+  };
+
+  const getStats = (gear, lvl) => {
+    if (!gear) return { dps: 0, hp: 0 };
+    return { dps: 5 * lvl, hp: 15 * lvl };
+  };
+
+  const o1 = calculateGearOres(state.forgeSlot1Gear, state.forgeSlot1SimLevel);
+  const o2 = calculateGearOres(state.forgeSlot2Gear, state.forgeSlot2SimLevel);
+  totalShiny = o1.s + o2.s;
+  totalGlowy = o1.g + o2.g;
+  totalStarry = o1.st + o2.st;
+
+  const s1 = getStats(state.forgeSlot1Gear, state.forgeSlot1SimLevel);
+  const s2 = getStats(state.forgeSlot2Gear, state.forgeSlot2SimLevel);
+  totalDpsGained = s1.dps + s2.dps;
+  totalHpGained = s1.hp + s2.hp;
+
+  const epic1 = state.forgeSlot1Gear && (state.forgeSlot1Gear.name === "Giant Gauntlet" || state.forgeSlot1Gear.name === "Frozen Arrow");
+  const epic2 = state.forgeSlot2Gear && (state.forgeSlot2Gear.name === "Giant Gauntlet" || state.forgeSlot2Gear.name === "Frozen Arrow");
+
+  panel.innerHTML = `
+    <div>
+      <h3 class="gold-gradient-text" style="font-size: 18px; font-weight: 800; margin: 0;">🛠️ Upgrade Cost & Synergy Optimizer</h3>
+      <span style="font-size: 11px; color: var(--text-muted);">${state.forgeSelectedHero} &bull; Progression Planner</span>
+    </div>
+
+    <!-- Slotted 1 controls -->
+    ${state.forgeSlot1Gear ? `
+      <div style="background: rgba(255,255,255,0.02); border: 1px solid var(--border-subtle); padding: 12px; border-radius: 8px;">
+        <div class="flex-between" style="font-size: 12px; margin-bottom: 6px;">
+          <strong>Slot 1: ${escapeHtml(state.forgeSlot1Gear.name)}</strong>
+          <span style="font-size: 10px; color: var(--text-muted);">Max level: ${epic1 ? 27 : 18}</span>
+        </div>
+        <div class="level-spinner-row" style="padding: 6px 12px;">
+          <button class="level-spinner-btn" onclick="adjustSandboxGearLevel(1, -1)">&minus;</button>
+          <div style="font-size: 14px; font-weight: bold;">LVL ${state.forgeSlot1SimLevel}</div>
+          <button class="level-spinner-btn" onclick="adjustSandboxGearLevel(1, 1)">&plus;</button>
+        </div>
+      </div>
+    ` : ''}
+
+    <!-- Slotted 2 controls -->
+    ${state.forgeSlot2Gear ? `
+      <div style="background: rgba(255,255,255,0.02); border: 1px solid var(--border-subtle); padding: 12px; border-radius: 8px; margin-top: 12px;">
+        <div class="flex-between" style="font-size: 12px; margin-bottom: 6px;">
+          <strong>Slot 2: ${escapeHtml(state.forgeSlot2Gear.name)}</strong>
+          <span style="font-size: 10px; color: var(--text-muted);">Max level: ${epic2 ? 27 : 18}</span>
+        </div>
+        <div class="level-spinner-row" style="padding: 6px 12px;">
+          <button class="level-spinner-btn" onclick="adjustSandboxGearLevel(2, -1)">&minus;</button>
+          <div style="font-size: 14px; font-weight: bold;">LVL ${state.forgeSlot2SimLevel}</div>
+          <button class="level-spinner-btn" onclick="adjustSandboxGearLevel(2, 1)">&plus;</button>
+        </div>
+      </div>
+    ` : ''}
+
+    <div style="margin-top: 16px;">
+      <h5 style="font-size: 11px; color: var(--text-muted); margin-bottom: 8px; text-transform: uppercase;">Aggregated Cost Tracker</h5>
+      <div class="ore-cost-badge-row">
+        <div class="ore-cost-badge">
+          <i class="fas fa-star" style="color: #4a90e2; font-size: 16px; margin-bottom: 4px;"></i>
+          <div>${totalShiny.toLocaleString()}</div>
+          <span>Shiny</span>
+        </div>
+        <div class="ore-cost-badge">
+          <i class="fas fa-star" style="color: #ec3b83; font-size: 16px; margin-bottom: 4px;"></i>
+          <div>${totalGlowy.toLocaleString()}</div>
+          <span>Glowy</span>
+        </div>
+        <div class="ore-cost-badge">
+          <i class="fas fa-star" style="color: var(--clash-gold); font-size: 16px; margin-bottom: 4px;"></i>
+          <div>${totalStarry.toLocaleString()}</div>
+          <span>Starry</span>
+        </div>
+      </div>
+    </div>
+
+    <div style="background: rgba(0,0,0,0.2); border: 1px solid var(--border-subtle); border-radius: 10px; padding: 14px; margin-top: 12px;">
+      <h5 style="font-size: 11px; color: var(--text-muted); text-transform: uppercase; margin-bottom: 8px;">Synergy Loadout Boosts</h5>
+      <div class="flex-between border-bottom-subtle pb-6" style="font-size: 13px; margin-bottom: 6px;">
+        <span>Total Passive DPS Boost</span>
+        <strong style="color: #4adb86;">+${totalDpsGained} DPS</strong>
+      </div>
+      <div class="flex-between" style="font-size: 13px;">
+        <span>Total HP Recovery Boost</span>
+        <strong style="color: #4adb86;">+${totalHpGained} HP</strong>
+      </div>
+    </div>
+  `;
+}
+
+function selectSandboxHero(heroName) {
+  state.forgeSelectedHero = heroName;
+  state.forgeSlot1Gear = null;
+  state.forgeSlot2Gear = null;
+  state.activeForgeSlot = 1;
+  renderHeroSandbox();
+  if (typeof ClashSoundEngine !== 'undefined') ClashSoundEngine.playClick();
+}
+
+function toggleActiveSandboxSlot(slotNum) {
+  state.activeForgeSlot = slotNum;
+  renderHeroSandbox();
+  if (typeof ClashSoundEngine !== 'undefined') ClashSoundEngine.playClick();
+}
+
+function slotSandboxGear(gearName) {
+  slotForgeGear(gearName);
+  renderHeroSandbox();
+}
+
+function adjustSandboxGearLevel(slot, delta) {
+  adjustLoadoutLevel(slot, delta);
+  renderHeroSandbox();
+}
+
+function saveSandboxLoadout(letter) {
+  const current = {
+    hero: state.forgeSelectedHero,
+    gear1: state.forgeSlot1Gear ? { name: state.forgeSlot1Gear.name, level: state.forgeSlot1SimLevel } : null,
+    gear2: state.forgeSlot2Gear ? { name: state.forgeSlot2Gear.name, level: state.forgeSlot2SimLevel } : null,
+    dps: (state.forgeSlot1SimLevel * 5) + (state.forgeSlot2SimLevel * 5),
+    hp: (state.forgeSlot1SimLevel * 15) + (state.forgeSlot2SimLevel * 15)
+  };
+  localStorage.setItem(`coc_sandbox_loadout_${letter}`, JSON.stringify(current));
+  showToast(`Loadout saved as Loadout ${letter}!`, "success");
+  if (typeof ClashSoundEngine !== 'undefined') ClashSoundEngine.playFanfare();
+  renderSandboxComparison();
+}
+
+function renderSandboxComparison() {
+  const resultsContainer = document.getElementById('sandbox-comparison-results');
+  if (!resultsContainer) return;
+
+  const a = JSON.parse(localStorage.getItem('coc_sandbox_loadout_A'));
+  const b = JSON.parse(localStorage.getItem('coc_sandbox_loadout_B'));
+
+  if (!a || !b) {
+    resultsContainer.innerHTML = `
+      <div class="placeholder-state" style="padding: 20px 0;">
+        <i class="fas fa-chart-bar" style="font-size: 32px; color: var(--clash-gold); opacity: 0.5; margin-bottom: 8px;"></i>
+        <p style="font-size: 13px; color: var(--text-muted);">Save both loadouts above to display a side-by-side audit.</p>
+      </div>
+    `;
+    return;
+  }
+
+  const maxDpsVal = Math.max(a.dps, b.dps, 1);
+  const maxHpVal = Math.max(a.hp, b.hp, 1);
+
+  const pctA_Dps = Math.round((a.dps / maxDpsVal) * 100);
+  const pctB_Dps = Math.round((b.dps / maxDpsVal) * 100);
+  const pctA_Hp = Math.round((a.hp / maxHpVal) * 100);
+  const pctB_Hp = Math.round((b.hp / maxHpVal) * 100);
+
+  resultsContainer.innerHTML = `
+    <div style="display: flex; flex-direction: column; gap: 16px;">
+      <!-- Row 1: Loadout Overviews -->
+      <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 16px;">
+        <div style="background: rgba(245, 166, 35, 0.05); border: 1px solid rgba(245, 166, 35, 0.2); padding: 14px; border-radius: 8px;">
+          <strong style="color: var(--clash-gold); font-size: 14px;">Loadout A (${a.hero})</strong>
+          <ul style="list-style: none; padding: 0; margin: 8px 0 0 0; font-size: 12px; color: var(--text-muted); display:flex; flex-direction:column; gap:4px;">
+            <li>${a.gear1 ? `${escapeHtml(a.gear1.name)} (LVL ${a.gear1.level})` : 'Empty Slot'}</li>
+            <li>${a.gear2 ? `${escapeHtml(a.gear2.name)} (LVL ${a.gear2.level})` : 'Empty Slot'}</li>
+          </ul>
+        </div>
+        <div style="background: rgba(236, 59, 131, 0.05); border: 1px solid rgba(236, 59, 131, 0.2); padding: 14px; border-radius: 8px;">
+          <strong style="color: var(--clash-elixir); font-size: 14px;">Loadout B (${b.hero})</strong>
+          <ul style="list-style: none; padding: 0; margin: 8px 0 0 0; font-size: 12px; color: var(--text-muted); display:flex; flex-direction:column; gap:4px;">
+            <li>${b.gear1 ? `${escapeHtml(b.gear1.name)} (LVL ${b.gear1.level})` : 'Empty Slot'}</li>
+            <li>${b.gear2 ? `${escapeHtml(b.gear2.name)} (LVL ${b.gear2.level})` : 'Empty Slot'}</li>
+          </ul>
+        </div>
+      </div>
+
+      <!-- Compare Stat 1: DPS -->
+      <div class="sandbox-comparison-card">
+        <div class="flex-between" style="font-size: 13px; font-weight: bold;">
+          <span>Combined DPS Boosts</span>
+          <span style="font-size: 11px; color: var(--text-muted);">
+            A: <strong style="color: var(--clash-gold);">+${a.dps}</strong> vs. B: <strong style="color: var(--clash-elixir);">+${b.dps}</strong>
+          </span>
+        </div>
+        <div class="sandbox-comparison-bar-container">
+          <div class="sandbox-comparison-bar loadout-a-fill" style="width: ${pctA_Dps}%;"></div>
+        </div>
+        <div class="sandbox-comparison-bar-container" style="margin-top: -6px;">
+          <div class="sandbox-comparison-bar loadout-b-fill" style="width: ${pctB_Dps}%;"></div>
+        </div>
+      </div>
+
+      <!-- Compare Stat 2: HP -->
+      <div class="sandbox-comparison-card">
+        <div class="flex-between" style="font-size: 13px; font-weight: bold;">
+          <span>Combined HP Recovery Boosts</span>
+          <span style="font-size: 11px; color: var(--text-muted);">
+            A: <strong style="color: var(--clash-gold);">+${a.hp}</strong> vs. B: <strong style="color: var(--clash-elixir);">+${b.hp}</strong>
+          </span>
+        </div>
+        <div class="sandbox-comparison-bar-container">
+          <div class="sandbox-comparison-bar loadout-a-fill" style="width: ${pctA_Hp}%;"></div>
+        </div>
+        <div class="sandbox-comparison-bar-container" style="margin-top: -6px;">
+          <div class="sandbox-comparison-bar loadout-b-fill" style="width: ${pctB_Hp}%;"></div>
+        </div>
+      </div>
+    </div>
+  `;
+}
+
+window.selectSandboxHero = selectSandboxHero;
+window.toggleActiveSandboxSlot = toggleActiveSandboxSlot;
+window.slotSandboxGear = slotSandboxGear;
+window.adjustSandboxGearLevel = adjustSandboxGearLevel;
+window.saveSandboxLoadout = saveSandboxLoadout;
+window.initHeroSandboxTab = initHeroSandboxTab;
+
+// ============================================================================
+// ⚔️ INTERACTIVE WAR TACTICS PLANNER CANVAS (MODULE 2)
+// ============================================================================
+state.tacticsNodes = [];
+state.isTacticsDrawing = false;
+state.tacticsPathPoints = [];
+
+function initTacticsPlannerCanvas() {
+  const container = document.getElementById('tactics-grid-container');
+  const palette = document.getElementById('tactics-palette');
+  const overlay = document.getElementById('tactics-svg-overlay');
+  if (!container || !palette || !overlay) return;
+
+  // Bind palette clicks
+  palette.querySelectorAll('.palette-btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+      palette.querySelectorAll('.palette-btn').forEach(b => b.classList.remove('selected'));
+      btn.classList.add('selected');
+      if (typeof ClashSoundEngine !== 'undefined') ClashSoundEngine.playClick();
+    });
+  });
+
+  // Bind click-to-place on grid
+  container.addEventListener('click', (e) => {
+    if (e.target.closest('.remove-tactic-btn') || e.target.closest('.tactic-node')) return;
+
+    const rect = container.getBoundingClientRect();
+    const x = Math.round(e.clientX - rect.left);
+    const y = Math.round(e.clientY - rect.top);
+
+    if (state.isTacticsDrawing) {
+      // Draw path line
+      state.tacticsPathPoints.push({ x, y });
+      redrawTacticsSVG();
+      if (typeof ClashSoundEngine !== 'undefined') ClashSoundEngine.playClick();
+    } else {
+      // Place marker node
+      const activeBtn = palette.querySelector('.palette-btn.selected');
+      if (!activeBtn) return;
+      const type = activeBtn.getAttribute('data-tactic');
+      const text = activeBtn.textContent.trim().split(' ')[1] || activeBtn.textContent.trim().substring(0,2);
+      const color = activeBtn.getAttribute('data-color') || '';
+
+      const node = { id: Date.now(), type, text, color, x, y };
+      state.tacticsNodes.push(node);
+      drawTacticsNodeElement(node);
+      if (typeof ClashSoundEngine !== 'undefined') ClashSoundEngine.playHammer();
+    }
+  });
+
+  // Load preset if exists
+  const saved = localStorage.getItem('coc_tactics_preset');
+  if (saved) {
+    try {
+      const data = JSON.parse(saved);
+      state.tacticsNodes = data.nodes || [];
+      state.tacticsPathPoints = data.paths || [];
+      
+      // Render
+      clearTacticsCanvasElements();
+      state.tacticsNodes.forEach(drawTacticsNodeElement);
+      redrawTacticsSVG();
+    } catch(err) {
+      console.warn("Could not load tactics preset", err);
+    }
+  }
+}
+
+function drawTacticsNodeElement(node) {
+  const container = document.getElementById('tactics-grid-container');
+  if (!container) return;
+
+  const div = document.createElement('div');
+  div.className = 'tactic-node';
+  div.style.left = `${node.x - 16}px`;
+  div.style.top = `${node.y - 16}px`;
+  div.style.background = node.color ? 'var(--bg-stone-dark)' : 'var(--clash-gold-gradient)';
+  div.style.borderColor = node.color ? '#a5d6ff' : 'var(--clash-gold)';
+  div.style.color = node.color ? '#fff' : '#000';
+  div.id = `tactic-node-${node.id}`;
+
+  div.innerHTML = `
+    <span>${escapeHtml(node.text.substring(0, 2))}</span>
+    <button class="remove-tactic-btn" onclick="removeTacticsNode(${node.id})">&times;</button>
+  `;
+
+  // Simple drag-to-position trigger
+  let isDragging = false;
+  div.addEventListener('mousedown', (e) => {
+    isDragging = true;
+    div.classList.add('active-drag');
+    e.stopPropagation();
+  });
+
+  container.addEventListener('mousemove', (e) => {
+    if (!isDragging) return;
+    const rect = container.getBoundingClientRect();
+    const nx = Math.round(e.clientX - rect.left);
+    const ny = Math.round(e.clientY - rect.top);
+    
+    div.style.left = `${nx - 16}px`;
+    div.style.top = `${ny - 16}px`;
+    
+    // Update node coordinate
+    const target = state.tacticsNodes.find(n => n.id === node.id);
+    if (target) {
+      target.x = nx;
+      target.y = ny;
+    }
+  });
+
+  document.addEventListener('mouseup', () => {
+    if (isDragging) {
+      isDragging = false;
+      div.classList.remove('active-drag');
+    }
+  });
+
+  container.appendChild(div);
+
+  // If spell, add visual radius circle overlay
+  if (node.type.startsWith('spell-')) {
+    const ring = document.createElement('div');
+    ring.className = 'spell-ring-overlay';
+    ring.style.left = `${node.x}px`;
+    ring.style.top = `${node.y}px`;
+    ring.style.width = '70px';
+    ring.style.height = '70px';
+    ring.style.background = node.color;
+    ring.style.borderColor = node.color.replace('0.35', '0.7');
+    ring.id = `spell-ring-${node.id}`;
+    container.appendChild(ring);
+  }
+}
+
+function removeTacticsNode(id) {
+  state.tacticsNodes = state.tacticsNodes.filter(n => n.id !== id);
+  const el = document.getElementById(`tactic-node-${id}`);
+  const ring = document.getElementById(`spell-ring-${id}`);
+  if (el) el.remove();
+  if (ring) ring.remove();
+  if (typeof ClashSoundEngine !== 'undefined') ClashSoundEngine.playClick();
+}
+
+function toggleTacticsDrawing() {
+  state.isTacticsDrawing = !state.isTacticsDrawing;
+  const btn = document.getElementById('tactics-draw-btn');
+  if (!btn) return;
+  btn.textContent = state.isTacticsDrawing ? "Drawing: ACTIVE" : "Draw Route";
+  btn.style.background = state.isTacticsDrawing ? 'var(--clash-gold-gradient)' : 'rgba(74, 144, 226, 0.15)';
+  btn.style.color = state.isTacticsDrawing ? '#000' : '#4a90e2';
+  showToast(state.isTacticsDrawing ? "Route Drawing enabled! Tap on grid to draw corridors." : "Route Drawing disabled.", "info");
+}
+
+function redrawTacticsSVG() {
+  const overlay = document.getElementById('tactics-svg-overlay');
+  if (!overlay) return;
+
+  if (state.tacticsPathPoints.length < 2) {
+    overlay.innerHTML = '';
+    return;
+  }
+
+  let d = `M ${state.tacticsPathPoints[0].x} ${state.tacticsPathPoints[0].y}`;
+  for (let i = 1; i < state.tacticsPathPoints.length; i++) {
+    d += ` L ${state.tacticsPathPoints[i].x} ${state.tacticsPathPoints[i].y}`;
+  }
+
+  overlay.innerHTML = `
+    <defs>
+      <marker id="tactic-arrow" viewBox="0 0 10 10" refX="6" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+        <path d="M 0 0 L 10 5 L 0 10 z" fill="#4a90e2" />
+      </marker>
+    </defs>
+    <path d="${d}" fill="none" stroke="#4a90e2" stroke-width="3" stroke-dasharray="6,4" marker-end="url(#tactic-arrow)" />
+  `;
+}
+
+function clearTacticsCanvas() {
+  state.tacticsNodes = [];
+  state.tacticsPathPoints = [];
+  clearTacticsCanvasElements();
+  showToast("Blackboard canvas cleared.", "info");
+  if (typeof ClashSoundEngine !== 'undefined') ClashSoundEngine.playHorn();
+}
+
+function clearTacticsCanvasElements() {
+  const container = document.getElementById('tactics-grid-container');
+  if (container) {
+    container.querySelectorAll('.tactic-node').forEach(el => el.remove());
+    container.querySelectorAll('.spell-ring-overlay').forEach(el => el.remove());
+  }
+  const overlay = document.getElementById('tactics-svg-overlay');
+  if (overlay) overlay.innerHTML = '';
+}
+
+function saveTacticsPlan() {
+  const data = { nodes: state.tacticsNodes, paths: state.tacticsPathPoints };
+  localStorage.setItem('coc_tactics_preset', JSON.stringify(data));
+  showToast("Strategic Tactics blackboard layout saved locally!", "success");
+  if (typeof ClashSoundEngine !== 'undefined') ClashSoundEngine.playFanfare();
+}
+
+function exportTacticsJSON() {
+  const data = { nodes: state.tacticsNodes, paths: state.tacticsPathPoints };
+  navigator.clipboard.writeText(JSON.stringify(data)).then(() => {
+    showToast("Tactics board configuration copied to clipboard as JSON!", "success");
+    if (typeof ClashSoundEngine !== 'undefined') ClashSoundEngine.playClick();
+  });
+}
+
+function importTacticsJSON() {
+  const str = prompt("Paste your tactics board JSON config here:");
+  if (!str) return;
+  try {
+    const data = JSON.parse(str);
+    state.tacticsNodes = data.nodes || [];
+    state.tacticsPathPoints = data.paths || [];
+    clearTacticsCanvasElements();
+    state.tacticsNodes.forEach(drawTacticsNodeElement);
+    redrawTacticsSVG();
+    showToast("Tactics blackboard configuration imported successfully!", "success");
+    if (typeof ClashSoundEngine !== 'undefined') ClashSoundEngine.playFanfare();
+  } catch (err) {
+    showToast("Failed to parse JSON configuration.", "error");
+  }
+}
+
+window.toggleTacticsDrawing = toggleTacticsDrawing;
+window.saveTacticsPlan = saveTacticsPlan;
+window.exportTacticsJSON = exportTacticsJSON;
+window.importTacticsJSON = importTacticsJSON;
+window.clearTacticsCanvas = clearTacticsCanvas;
+window.removeTacticsNode = removeTacticsNode;
+window.initTacticsPlannerCanvas = initTacticsPlannerCanvas;
+
+// ============================================================================
+// 📋 CLAN ROSTER INACTIVITY AUDIT & INTEL (MODULE 3)
+// ============================================================================
+function renderClanAudit(clan) {
+  const container = document.getElementById('clan-subview-audit');
+  if (!container) return;
+
+  const members = clan.memberList || [];
+  
+  // Roster audit calculation
+  const auditedMembers = members.map(m => {
+    const ratio = m.donations / (m.donationsReceived || 1);
+    let mvpTag = '';
+    let isInactive = false;
+
+    if (m.donations > 8000) {
+      mvpTag = `<span class="roster-mvp-badge"><i class="fas fa-trophy"></i> Donation Master</span>`;
+    } else if (m.trophies > 5400) {
+      mvpTag = `<span class="roster-mvp-badge"><i class="fas fa-crown"></i> Legend Pusher</span>`;
+    }
+
+    if (m.donations < 100 && ratio < 0.1 && m.role === 'member') {
+      isInactive = true;
+    }
+
+    return {
+      name: m.name,
+      role: m.role,
+      donations: m.donations,
+      received: m.donationsReceived,
+      trophies: m.trophies,
+      mvpTag,
+      isInactive
+    };
+  });
+
+  const inactiveList = auditedMembers.filter(m => m.isInactive);
+  const mvpList = auditedMembers.filter(m => m.mvpTag);
+
+  container.innerHTML = `
+    <div style="display: grid; grid-template-columns: 1fr 1.3fr; gap: 24px;">
+      <!-- Left: Leader Diagnostics summary -->
+      <div style="display:flex; flex-direction:column; gap: 20px;">
+        <div class="results-card" style="min-height: auto;">
+          <h3 class="gold-gradient-text" style="font-size: 18px; font-weight: 800; margin: 0;"><i class="fas fa-satellite"></i> Leadership Roster Intel</h3>
+          <p style="font-size: 12px; color: var(--text-muted); margin-top: 4px; margin-bottom: 16px;">System diagnostics evaluating donation rates and pushes.</p>
+          
+          <div style="background: rgba(0,0,0,0.15); border: 1px solid var(--border-subtle); padding: 12px; border-radius: 8px;">
+            <div class="flex-between" style="font-size: 13px; margin-bottom: 6px;">
+              <span>Roster Audit Size</span>
+              <strong>${members.length} members</strong>
+            </div>
+            <div class="flex-between" style="font-size: 13px; margin-bottom: 6px;">
+              <span>MVP Ranks Flagged</span>
+              <strong style="color: #4adb86;">${mvpList.length} MVPs</strong>
+            </div>
+            <div class="flex-between" style="font-size: 13px;">
+              <span>Inactive flags (Warning)</span>
+              <strong style="color: var(--clash-elixir);">${inactiveList.length} players</strong>
+            </div>
+          </div>
+        </div>
+
+        <!-- Inactivity Warnings Card -->
+        <div class="results-card" style="min-height: auto;">
+          <h3 style="font-size: 16px; font-weight: 800; color: var(--clash-elixir); margin-bottom: 12px;"><i class="fas fa-exclamation-triangle"></i> At Risk of Inactivity</h3>
+          <div style="display: flex; flex-direction: column; gap: 8px;">
+            ${inactiveList.length === 0 ? `
+              <div style="font-size: 12px; color: var(--text-muted); font-style: italic;">All clan roster members meet active thresholds!</div>
+            ` : inactiveList.map(m => `
+              <div class="flex-between" style="padding: 8px 12px; background: rgba(236, 59, 131, 0.05); border: 1px solid rgba(236, 59, 131, 0.2); border-radius: 8px; font-size: 12px;">
+                <strong>${escapeHtml(m.name)}</strong>
+                <span class="roster-inactive-badge"><i class="fas fa-clock"></i> Inactive (${m.donations} dn)</span>
+              </div>
+            `).join('')}
+          </div>
+        </div>
+      </div>
+
+      <!-- Right: Detailed audited members grid list -->
+      <div class="results-card" style="min-height: auto;">
+        <h3 style="font-size: 18px; font-weight: 800; border-bottom: 1px solid var(--border-subtle); padding-bottom: 12px; margin-bottom: 16px;"> Roster Audit Standings</h3>
+        <div style="overflow-y: auto; max-height: 480px; display: flex; flex-direction: column; gap: 10px;">
+          ${auditedMembers.map(m => `
+            <div class="telemetry-row" style="border-color: ${m.isInactive ? 'rgba(236,59,131,0.2)' : 'var(--border-subtle)'}; background: ${m.isInactive ? 'rgba(236,59,131,0.02)' : 'rgba(0,0,0,0.1)'}; padding: 12px;">
+              <div style="display: flex; flex-direction: column; gap: 4px;">
+                <div style="display: flex; align-items: center; gap: 8px;">
+                  <strong style="color: var(--text-main); font-size: 13px;">${escapeHtml(m.name)}</strong>
+                  <span style="font-size: 10px; color: var(--text-muted); text-transform: uppercase;">${escapeHtml(m.role)}</span>
+                </div>
+                <div style="font-size: 11px; color: var(--text-muted);">
+                  Donated: <strong style="color:var(--text-main);">${m.donations}</strong> &bull; Received: <strong style="color:var(--text-main);">${m.received}</strong>
+                </div>
+              </div>
+              <div style="text-align: right; display: flex; flex-direction: column; align-items: flex-end; gap: 6px;">
+                <strong style="color: var(--clash-gold); font-size: 12px;"><i class="fas fa-trophy"></i> ${m.trophies}</strong>
+                ${m.mvpTag}
+                ${m.isInactive ? '<span class="roster-inactive-badge"><i class="fas fa-warning"></i> Flagged</span>' : ''}
+              </div>
+            </div>
+          `).join('')}
+        </div>
+      </div>
+    </div>
+  `;
+}
+
+// Override toggleClanSubTab to support 'audit' subview
+const originalToggleClanSubTab = window.toggleClanSubTab;
+function premiumToggleClanSubTab(tab) {
+  const rosterEl = document.getElementById('clan-subview-roster');
+  const gamesEl = document.getElementById('clan-subview-games');
+  const auditEl = document.getElementById('clan-subview-audit');
+
+  const btnRoster = document.getElementById('btn-clan-roster');
+  const btnGames = document.getElementById('btn-clan-games');
+  const btnAudit = document.getElementById('btn-clan-audit');
+
+  if (tab === 'audit') {
+    if (rosterEl) rosterEl.style.display = 'none';
+    if (gamesEl) gamesEl.style.display = 'none';
+    if (auditEl) {
+      auditEl.style.display = 'block';
+      if (state.activeClanForAudit) {
+        renderClanAudit(state.activeClanForAudit);
+      }
+    }
+
+    if (btnRoster) btnRoster.classList.remove('active');
+    if (btnGames) btnGames.classList.remove('active');
+    if (btnAudit) btnAudit.classList.add('active');
+    if (typeof ClashSoundEngine !== 'undefined') ClashSoundEngine.playClick();
+  } else {
+    if (auditEl) auditEl.style.display = 'none';
+    if (btnAudit) btnAudit.classList.remove('active');
+    
+    // Call original toggle function for roster/games compatibility
+    if (typeof originalToggleClanSubTab === 'function') {
+      originalToggleClanSubTab(tab);
+    } else {
+      if (tab === 'roster') {
+        if (rosterEl) rosterEl.style.display = 'flex';
+        if (gamesEl) gamesEl.style.display = 'none';
+        if (btnRoster) btnRoster.classList.add('active');
+        if (btnGames) btnGames.classList.remove('active');
+      } else {
+        if (rosterEl) rosterEl.style.display = 'none';
+        if (gamesEl) gamesEl.style.display = 'flex';
+        if (btnRoster) btnRoster.classList.remove('active');
+        if (btnGames) btnGames.classList.add('active');
+      }
+    }
+  }
+}
+window.toggleClanSubTab = premiumToggleClanSubTab;
+window.renderClanAudit = renderClanAudit;
+
+// ============================================================================
+// 🏆 CWL STANDINGS PREDICTION & GROUP SIMULATOR (MODULE 4)
+// ============================================================================
+function toggleCWLSimulator() {
+  const container = document.getElementById('cwl-sim-container');
+  const btn = document.getElementById('cwl-sim-toggle-btn');
+  if (!container || !btn) return;
+
+  const isHidden = container.style.display === 'none';
+  container.style.display = isHidden ? 'flex' : 'none';
+  btn.textContent = isHidden ? "📊 Close Standings Simulator" : "📊 Open CWL Standings Simulator";
+
+  if (isHidden) {
+    // Populate base standings
+    const activeClanTag = state.activeClanTag || "#2PP2PP2P";
+    const cwl = structuredClone(window.MOCK_DATA.cwl[activeClanTag] || window.MOCK_CWL[activeClanTag] || window.MOCK_CWL["#2PP2PP2P"]);
+    
+    // Seed simulation values
+    state.cwlSimClans = cwl.clans.map((clan, idx) => {
+      return {
+        tag: clan.tag,
+        name: clan.name,
+        badgeUrls: clan.badgeUrls,
+        stars: 32 - (idx * 3), // seed realistic base scores
+        destruction: Math.max(0, 94.5 - (idx * 4.2))
+      };
+    });
+    renderCWLSimulatorGrid();
+  }
+  if (typeof ClashSoundEngine !== 'undefined') ClashSoundEngine.playClick();
+}
+
+function renderCWLSimulatorGrid() {
+  const container = document.getElementById('cwl-sim-container');
+  if (!container) return;
+
+  // Sort clans by predicted stars, then destruction
+  const sortedClans = [...state.cwlSimClans].sort((a, b) => {
+    if (b.stars !== a.stars) return b.stars - a.stars;
+    return b.destruction - a.destruction;
+  });
+
+  const activeClanTag = state.activeClanTag || "#2PP2PP2P";
+  const myClanIndex = sortedClans.findIndex(c => c.tag === activeClanTag);
+  const myClanRank = myClanIndex + 1;
+
+  let feedbackText = '';
+  let statusColor = '#a8a8a8';
+  if (myClanRank <= 2) {
+    feedbackText = `🏆 Nova Esports is in rank ${myClanRank} (Promotion Zone)! Maintain simulated rate of stars to secure Champ II!`;
+    statusColor = '#4adb86';
+  } else if (myClanRank >= 7) {
+    feedbackText = `⚠️ Nova Esports is in rank ${myClanRank} (Demotion Zone)! Increase simulated attacks to dodge demotion.`;
+    statusColor = 'var(--clash-elixir)';
+  } else {
+    feedbackText = `🛡️ Nova Esports is rank ${myClanRank}. Stable standings tier secure. Needs ${sortedClans[1].stars - sortedClans[myClanIndex].stars + 1} stars to reach promotion zone.`;
+    statusColor = 'var(--clash-gold)';
+  }
+
+  container.innerHTML = `
+    <div class="results-card" style="min-height: auto; width: 100%;">
+      <h3 style="font-size: 15px; color: var(--clash-gold); margin-bottom: 4px;"><i class="fas fa-calculator"></i> Simulated Bracket Standings</h3>
+      <p style="font-size: 12px; color: var(--text-muted); margin-bottom: 16px;">Modify daily predicted stars to inspect real-time promotional updates.</p>
+      
+      <div style="overflow-x: auto; width: 100%;">
+        <table class="leaderboard-table" style="font-size: 12px; width:100%;">
+          <thead>
+            <tr>
+              <th>Rank</th>
+              <th>Clan Name</th>
+              <th style="text-align: center;">Simulated Stars</th>
+              <th style="text-align: center;">Simulated Destruction</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${sortedClans.map((c, index) => {
+              const isPromo = index < 2;
+              const isDemo = index >= 6;
+              const isHome = c.tag === activeClanTag;
+              
+              let rowStyle = '';
+              if (isPromo) rowStyle = 'border-left: 4px solid #4adb86;';
+              else if (isDemo) rowStyle = 'border-left: 4px solid #ff3b80;';
+              if (isHome) rowStyle += ' background: rgba(245,166,35,0.05); font-weight:700;';
+
+              return `
+                <tr class="cwl-sim-row" style="${rowStyle}">
+                  <td><span class="rank-badge ${index < 3 ? `rank-${index + 1}` : ''}">${index + 1}</span></td>
+                  <td>
+                    <div style="display: flex; align-items: center; gap: 8px;">
+                      <img src="${c.badgeUrls.small}" alt="badge" style="width: 20px; height: 20px; object-fit: contain;"/>
+                      <span>${escapeHtml(c.name)}</span>
+                      ${isHome ? '<span class="badge-small" style="background: rgba(245,166,35,0.15); color: var(--clash-gold); font-size: 9px; padding: 1px 4px;">HOME</span>' : ''}
+                    </div>
+                  </td>
+                  <td style="text-align: center;">
+                    <div style="display:flex; justify-content:center; align-items:center; gap: 4px;">
+                      <button onclick="adjustSimStars('${c.tag}', -1)" style="border:1px solid var(--border-subtle); background:rgba(255,255,255,0.05); color:#fff; width:20px; height:20px; border-radius:4px; font-weight:bold; cursor:pointer;">&minus;</button>
+                      <input type="number" class="cwl-sim-input" value="${c.stars}" onchange="setSimStars('${c.tag}', this.value)">
+                      <button onclick="adjustSimStars('${c.tag}', 1)" style="border:1px solid var(--border-subtle); background:rgba(255,255,255,0.05); color:#fff; width:20px; height:20px; border-radius:4px; font-weight:bold; cursor:pointer;">&plus;</button>
+                    </div>
+                  </td>
+                  <td style="text-align: center;">
+                    <input type="number" class="cwl-sim-input" style="width:56px;" value="${c.destruction}" onchange="setSimDestruction('${c.tag}', this.value)">%
+                  </td>
+                </tr>
+              `;
+            }).join('')}
+          </tbody>
+        </table>
+      </div>
+
+      <div style="background: rgba(0,0,0,0.2); border: 1px solid var(--border-subtle); padding: 12px; border-radius: 8px; margin-top: 16px; display: flex; align-items: center; gap: 10px;">
+        <i class="fas fa-info-circle" style="color: ${statusColor}; font-size: 16px;"></i>
+        <span style="font-size: 12px; font-weight: 700; color: ${statusColor};">${feedbackText}</span>
+      </div>
+    </div>
+  `;
+}
+
+function adjustSimStars(tag, delta) {
+  const target = state.cwlSimClans.find(c => c.tag === tag);
+  if (target) {
+    target.stars = Math.max(0, target.stars + delta);
+    renderCWLSimulatorGrid();
+  }
+}
+
+function setSimStars(tag, value) {
+  const target = state.cwlSimClans.find(c => c.tag === tag);
+  if (target) {
+    target.stars = Math.max(0, parseInt(value) || 0);
+    renderCWLSimulatorGrid();
+  }
+}
+
+function setSimDestruction(tag, value) {
+  const target = state.cwlSimClans.find(c => c.tag === tag);
+  if (target) {
+    target.destruction = Math.max(0, parseFloat(value) || 0);
+    renderCWLSimulatorGrid();
+  }
+}
+
+window.toggleCWLSimulator = toggleCWLSimulator;
+window.adjustSimStars = adjustSimStars;
+window.setSimStars = setSimStars;
+window.setSimDestruction = setSimDestruction;
+
+// Hook premium simulator trigger inside cwl loader
+const originalLoadCWLData = window.loadCWLData;
+async function premiumLoadCWLData(clanTag) {
+  state.activeClanTag = clanTag;
+  await originalLoadCWLData(clanTag);
+  const container = document.getElementById('cwl-results-container');
+  if (container) {
+    const simToggleBtn = document.createElement('button');
+    simToggleBtn.className = 'primary-btn';
+    simToggleBtn.id = 'cwl-sim-toggle-btn';
+    simToggleBtn.style.marginTop = '16px';
+    simToggleBtn.style.width = '100%';
+    simToggleBtn.textContent = "📊 Open CWL Standings Simulator";
+    simToggleBtn.onclick = toggleCWLSimulator;
+    container.appendChild(simToggleBtn);
+
+    const simContainer = document.createElement('div');
+    simContainer.id = 'cwl-sim-container';
+    simContainer.style.display = 'none';
+    simContainer.style.marginTop = '16px';
+    simContainer.style.flexDirection = 'column';
+    simContainer.style.gap = '16px';
+    container.appendChild(simContainer);
+  }
+}
+window.loadCWLData = premiumLoadCWLData;
+
+// ============================================================================
+// 🎛️ DIAGNOSTICS CONSOLE & TELEMETRY (MODULE 5)
+// ============================================================================
+state.telemetryQueries = [];
+
+function toggleInspectTab(tab) {
+  const jsonTab = document.getElementById('inspect-tab-json');
+  const telTab = document.getElementById('inspect-tab-telemetry');
+  const jsonView = document.getElementById('inspect-json-view');
+  const telView = document.getElementById('inspect-telemetry-view');
+  
+  if (!jsonTab || !telTab || !jsonView || !telView) return;
+
+  if (tab === 'json') {
+    jsonTab.classList.add('active');
+    telTab.classList.remove('active');
+    jsonView.style.display = 'flex';
+    telView.style.display = 'none';
+  } else {
+    jsonTab.classList.remove('active');
+    telTab.classList.add('active');
+    jsonView.style.display = 'none';
+    telView.style.display = 'flex';
+    updateTelemetryCacheUI();
+  }
+  if (typeof ClashSoundEngine !== 'undefined') ClashSoundEngine.playClick();
+}
+
+function logTelemetryQuery(endpoint, latencyMs, isHit) {
+  const latency = Math.round(latencyMs);
+  state.telemetryQueries.unshift({ endpoint, latency, isHit });
+  if (state.telemetryQueries.length > 5) state.telemetryQueries.pop();
+
+  const list = document.getElementById('telemetry-latency-list');
+  if (list) {
+    list.innerHTML = state.telemetryQueries.map(q => {
+      let speedClass = 'good';
+      if (q.latency > 500) speedClass = 'slow';
+      else if (q.latency > 150) speedClass = 'average';
+
+      return `
+        <div class="telemetry-row">
+          <span style="font-family: monospace; text-overflow: ellipsis; overflow: hidden; white-space: nowrap; width: 65%;" title="${escapeHtml(q.endpoint)}">${escapeHtml(q.endpoint)}</span>
+          <div style="display:flex; align-items:center; gap: 8px;">
+            ${q.isHit ? '<span class="badge-small" style="background: rgba(74,219,134,0.1); color: #4adb86; font-size:9px;">CACHE HIT</span>' : ''}
+            <span class="telemetry-latency-tag ${speedClass}">${q.latency} ms</span>
+          </div>
+        </div>
+      `;
+    }).join('');
+  }
+  updateTelemetryCacheUI();
+}
+
+function updateTelemetryCacheUI() {
+  const sizeEl = document.getElementById('telemetry-cache-allocated');
+  const hitRatioEl = document.getElementById('telemetry-cache-hitratio');
+  const rLimitEl = document.getElementById('telemetry-rate-remaining');
+  const rBarEl = document.getElementById('telemetry-rate-bar');
+
+  if (sizeEl) sizeEl.textContent = `${cocCache.size} / 50 items`;
+
+  if (hitRatioEl) {
+    if (state.telemetryQueries.length === 0) {
+      hitRatioEl.textContent = '0%';
+    } else {
+      const hits = state.telemetryQueries.filter(q => q.isHit).length;
+      const ratio = Math.round((hits / state.telemetryQueries.length) * 100);
+      hitRatioEl.textContent = `${ratio}%`;
+    }
+  }
+
+  const remaining = state.telemetryRateRemaining !== undefined ? state.telemetryRateRemaining : 30;
+  const limit = state.telemetryRateLimit || 30;
+  
+  if (rLimitEl) rLimitEl.textContent = `${remaining} / ${limit} remaining`;
+  if (rBarEl) {
+    const pct = Math.round((remaining / limit) * 100);
+    rBarEl.style.width = `${pct}%`;
+    rBarEl.style.setProperty('--fill-color', pct < 35 ? 'var(--clash-elixir-gradient)' : pct < 70 ? 'var(--clash-gold-gradient)' : 'linear-gradient(90deg, #4adb86 0%, #a2f9c5 100%)');
+  }
+}
+
+function clearTelemetryCache() {
+  cocCache.clear();
+  showToast("LRU Cache map memory successfully purged!", "success");
+  if (typeof ClashSoundEngine !== 'undefined') ClashSoundEngine.playHorn();
+  updateTelemetryCacheUI();
+}
+
+window.toggleInspectTab = toggleInspectTab;
+window.clearTelemetryCache = clearTelemetryCache;
+window.logTelemetryQuery = logTelemetryQuery;
+
+// ============================================================================
+// 💾 DASHBOARD SYNC & BACKUP CENTRE (MODULE 6)
+// ============================================================================
+function exportDashboardBackup() {
+  const backup = {
+    favorites: localStorage.getItem('coc_favorites'),
+    legend_attacks: localStorage.getItem('coc_legend_attacks'),
+    legend_defenses: localStorage.getItem('coc_legend_defenses'),
+    legend_start: localStorage.getItem('coc_legend_start'),
+    canvas_preset: localStorage.getItem('coc_canvas_preset'),
+    discord_webhook: localStorage.getItem('coc_discord_webhook'),
+    tactics_preset: localStorage.getItem('coc_tactics_preset'),
+    widget_chart: localStorage.getItem('coc_widget_chart'),
+    widget_goldpass: localStorage.getItem('coc_widget_goldpass'),
+    widget_heatmap: localStorage.getItem('coc_widget_heatmap'),
+    widget_bookmarks: localStorage.getItem('coc_widget_bookmarks')
+  };
+
+  const str = JSON.stringify(backup, null, 2);
+  const blob = new Blob([str], { type: "application/json" });
+  const url = URL.createObjectURL(blob);
+  
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = `clash-command-center-backup-${new Date().toISOString().split('T')[0]}.json`;
+  document.body.appendChild(a);
+  a.click();
+  
+  setTimeout(() => {
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+  }, 0);
+
+  showToast("Backup exported successfully!", "success");
+  if (typeof ClashSoundEngine !== 'undefined') ClashSoundEngine.playFanfare();
+}
+
+function triggerImportFile() {
+  const input = document.getElementById('import-backup-file-input');
+  if (input) input.click();
+}
+
+function importDashboardBackup(fileInput) {
+  const file = fileInput.files[0];
+  if (!file) return;
+
+  const reader = new FileReader();
+  reader.onload = function(e) {
+    try {
+      const data = JSON.parse(e.target.result);
+      
+      // Validation check
+      const keys = ['favorites', 'legend_attacks', 'canvas_preset', 'discord_webhook'];
+      const isValid = keys.some(k => Object.keys(data).includes(k));
+      if (!isValid) {
+        showToast("Invalid backup file structure.", "error");
+        return;
+      }
+
+      // Restore
+      Object.keys(data).forEach(key => {
+        if (data[key] !== null && data[key] !== undefined) {
+          localStorage.setItem(key, data[key]);
+        }
+      });
+
+      showToast("Backup imported successfully! Reloading...", "success");
+      if (typeof ClashSoundEngine !== 'undefined') ClashSoundEngine.playFanfare();
+      
+      setTimeout(() => {
+        window.location.reload();
+      }, 1500);
+
+    } catch (err) {
+      showToast("Failed to read or parse backup file.", "error");
+    }
+  };
+  reader.readAsText(file);
+}
+
+window.exportDashboardBackup = exportDashboardBackup;
+window.triggerImportFile = triggerImportFile;
+window.importDashboardBackup = importDashboardBackup;
+
